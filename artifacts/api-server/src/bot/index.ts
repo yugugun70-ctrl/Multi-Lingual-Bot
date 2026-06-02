@@ -233,7 +233,7 @@ export function createBot(): Bot {
       return;
     }
 
-    await ctx.sendChatAction("typing");
+    await ctx.replyWithChatAction("typing");
 
     const agentResponse = await runAgent(telegramId, userText, imageBase64, imageMediaType);
 
