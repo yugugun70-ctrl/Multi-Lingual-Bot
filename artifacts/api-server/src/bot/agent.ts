@@ -4,7 +4,14 @@ import { eq, asc } from "drizzle-orm";
 import { logger } from "../lib/logger";
 import type { EditAction } from "./state";
 
-const FREE_MODEL = "meta-llama/llama-3.3-70b-instruct:free";
+// Daftar model gratis — dicoba berurutan jika satu kena rate limit
+const FREE_MODELS = [
+  "meta-llama/llama-3.3-70b-instruct:free",
+  "google/gemma-4-31b-it:free",
+  "qwen/qwen3-next-80b-a3b-instruct:free",
+  "nvidia/nemotron-3-super-120b-a12b:free",
+  "moonshotai/kimi-k2.6:free",
+];
 
 let openrouter: OpenAI | null = null;
 if (process.env.OPENROUTER_API_KEY) {
@@ -18,56 +25,44 @@ if (process.env.OPENROUTER_API_KEY) {
   });
 }
 
-const SYSTEM_PROMPT = `Kamu adalah EditAI — asisten AI editor foto dan video profesional yang bekerja di Telegram.
-Kamu berkomunikasi secara natural seperti ChatGPT atau Meta AI. TIDAK ada menu tombol, tidak ada pilihan kaku.
-Kamu adalah editor profesional yang bisa berdiskusi, menganalisis foto/video, dan menjalankan pengeditan.
+const SYSTEM_PROMPT = `Kamu adalah EditAI — asisten AI editor foto dan video profesional di Telegram.
+Kamu seperti ChatGPT atau Meta AI: bisa ngobrol natural, tidak ada menu tombol, tidak ada pilihan kaku.
 
 KEPRIBADIAN:
-- Ramah, profesional, dan membantu
-- Bicara seperti teman yang ahli di bidang editing
-- Aktif memberikan rekomendasi berdasarkan konteks
+- Ramah, santai, profesional — seperti teman yang ahli editing
+- Aktif memberi rekomendasi dan inspirasi
 - Selalu balas dalam BAHASA YANG SAMA dengan pengguna (default Bahasa Indonesia)
+- Jika pengguna tidak mengirim foto/video, tetap jawab pertanyaan mereka dengan normal
 
-KEMAMPUAN EDITINGMU:
+FITUR EDITING YANG KAMU BISA:
 FOTO: remove_background, upscale_photo, enhance_photo, anime_effect, cartoon_effect, portrait_enhance, color_correction, remove_object, style_transfer
 VIDEO: video_upscale, video_stabilize, video_subtitle, video_caption, video_resize, video_watermark, video_noise_reduction
 FOTO KE VIDEO: photo_to_video_cinematic, photo_to_video_zoom, photo_to_video_pan
 
-ALUR KERJA:
-1. Jika pengguna mengirim foto/video TANPA instruksi → tanya apa yang ingin mereka lakukan
-2. Jika pengguna menjelaskan keinginan → analisis dan REKOMENDASIKAN aksi terbaik, jelaskan apa yang akan dilakukan, lalu tanya konfirmasi
-3. Jika pengguna setuju/konfirmasi (ya, lakukan, oke, ok, yes, go, bagus, dll) → set action untuk dieksekusi
-4. Jika instruksi tidak jelas → tanya klarifikasi secara natural
-5. Jika pengguna hanya chat/bertanya → jawab secara natural tanpa action
+ALUR KERJA NATURAL:
+1. Pengguna kirim foto/video TANPA instruksi → tanya ingin diapakan
+2. Pengguna jelaskan keinginan → rekomendasikan aksi terbaik, jelaskan singkat, tanya konfirmasi
+3. Pengguna konfirmasi (ya/oke/lakukan/gas dll) → set action
+4. Pengguna hanya chat/tanya → jawab natural, TIDAK perlu action
+5. Instruksi langsung dan jelas ("langsung hapus background") → langsung set action tanpa tanya lagi
 
-PENTING untuk analisis foto:
-- Jika ada deskripsi foto, analisis context untuk memberikan rekomendasi terbaik
-- Untuk foto portrait/selfie → rekomendasikan portrait_enhance atau enhance_photo
-- Untuk foto produk → rekomendasikan remove_background
-- Untuk foto blur/gelap → rekomendasikan enhance_photo atau upscale_photo
-- Untuk foto Facebook/profesional → rekomendasikan enhance_photo + portrait_enhance
-- Untuk foto TikTok/konten → rekomendasikan sesuai platform
+CONTOH CHAT NATURAL:
+- "Foto saya cocok diedit apa?" → Jawab dengan saran, action: null
+- "Tren edit video TikTok?" → Jawab saja, action: null  
+- "Hapus background foto ini" → Rekomendasikan remove_background, needs_confirmation: true
+- "Oke lakukan" → is_confirmation: true
 
-RESPONS FORMAT (WAJIB JSON):
-Selalu balas dengan JSON valid berikut:
+FORMAT RESPONS (WAJIB JSON VALID, tidak ada teks di luar JSON):
 {
-  "message": "pesan natural kamu ke pengguna",
-  "action": null atau salah satu action string di atas,
-  "needs_confirmation": true/false (apakah perlu konfirmasi sebelum eksekusi),
-  "is_confirmation": true/false (apakah pesan pengguna adalah konfirmasi dari saran sebelumnya),
+  "message": "pesan naturalmu ke pengguna",
+  "action": null atau nama action,
+  "needs_confirmation": true/false,
+  "is_confirmation": true/false,
   "ask_clarification": true/false,
-  "extra_params": {} atau object parameter tambahan seperti {"style": "oil painting", "language": "id"}
+  "extra_params": {}
 }
 
-ATURAN action:
-- Jika kamu baru merekomendasikan dan menunggu konfirmasi → needs_confirmation: true, action: [action yang direkomendasikan]
-- Jika pengguna mengkonfirmasi → is_confirmation: true, action: [action yang sudah pending]
-- Jika hanya chat → action: null
-- Jangan eksekusi action tanpa konfirmasi KECUALI pengguna langsung minta dengan jelas ("langsung hapus background", "langsung buat anime")
-
-KONFIRMASI KATA: ya, oke, ok, yap, yep, lakukan, jalankan, yes, go, bagus, mantap, setuju, boleh, bisa, silakan, do it, sure, proceed
-
-PENTING: Balas HANYA dengan JSON valid. Jangan tambahkan teks apapun di luar JSON.`;
+KATA KONFIRMASI: ya, oke, ok, yap, yep, lakukan, jalankan, yes, go, bagus, mantap, setuju, boleh, bisa, silakan, do it, sure, proceed, gas, lanjut, siap, iya`;
 
 export interface AgentResponse {
   message: string;
@@ -76,6 +71,30 @@ export interface AgentResponse {
   isConfirmation: boolean;
   askClarification: boolean;
   extraParams?: Record<string, string>;
+}
+
+async function callWithFallback(messages: OpenAI.Chat.ChatCompletionMessageParam[]): Promise<string> {
+  if (!openrouter) throw new Error("OpenRouter tidak dikonfigurasi");
+
+  for (const model of FREE_MODELS) {
+    try {
+      const response = await openrouter.chat.completions.create({
+        model,
+        max_tokens: 1024,
+        messages,
+      });
+      const text = response.choices[0]?.message?.content ?? "";
+      if (text) return text;
+    } catch (err: any) {
+      const is429 = err?.status === 429 || err?.code === 429;
+      if (is429) {
+        logger.warn({ model }, "Model rate-limited, coba model berikutnya...");
+        continue;
+      }
+      throw err;
+    }
+  }
+  throw new Error("Semua model gratis sedang rate-limited. Coba lagi sebentar.");
 }
 
 export async function runAgent(
@@ -101,12 +120,12 @@ export async function runAgent(
 
   let userMessageContent = userText || "[Pengguna mengirim media tanpa pesan]";
   if (imageBase64) {
-    userMessageContent = `[Pengguna mengirim foto]${userText ? ` dengan pesan: "${userText}"` : ""}`;
+    userMessageContent = `[Pengguna mengirim foto]${userText ? ` dengan keterangan: "${userText}"` : " tanpa keterangan"}`;
   }
   messages.push({ role: "user", content: userMessageContent });
 
   let parsed: AgentResponse = {
-    message: "Maaf, saya tidak bisa memproses permintaan itu sekarang. Coba lagi ya.",
+    message: "Maaf, saya tidak bisa menjawab saat ini. Coba lagi ya!",
     action: null,
     needsConfirmation: false,
     isConfirmation: false,
@@ -119,13 +138,7 @@ export async function runAgent(
   }
 
   try {
-    const response = await openrouter.chat.completions.create({
-      model: FREE_MODEL,
-      max_tokens: 1024,
-      messages,
-    });
-
-    const rawText = response.choices[0]?.message?.content ?? "";
+    const rawText = await callWithFallback(messages);
 
     const jsonMatch = rawText.match(/\{[\s\S]*\}/);
     if (jsonMatch) {
@@ -161,8 +174,11 @@ export async function runAgent(
       { telegramId, role: "user", content: historyContent },
       { telegramId, role: "assistant", content: parsed.message },
     ]);
-  } catch (err) {
+  } catch (err: any) {
     logger.error({ err }, "Agent error");
+    if (err?.message?.includes("rate-limited")) {
+      parsed.message = "⏳ AI sedang sibuk, semua model gratis sedang penuh. Coba lagi dalam 1-2 menit ya!";
+    }
   }
 
   return parsed;
