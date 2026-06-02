@@ -26,11 +26,3 @@ externalPort = 80
 [[ports]]
 localPort = 8081
 externalPort = 8081
-
-[userenv]
-
-[userenv.shared]
-PAYMENT_INFO_BANK = "BNI 1939716011"
-PAYMENT_INFO_EWALLET = "GoPay 085641452357"
-PREMIUM_PRICE = "50000"
-PREMIUM_DURATION_DAYS = "30"
