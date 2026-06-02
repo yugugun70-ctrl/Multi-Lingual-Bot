@@ -26,3 +26,10 @@ externalPort = 80
 [[ports]]
 localPort = 8081
 externalPort = 8081
+
+[userenv]
+
+[userenv.shared]
+TELEGRAM_BOT_TOKEN = "8330237420:AAG4hQk_F-CghoSCdghOx-9l-T_b9lQprFY"
+ADMIN_TELEGRAM_IDS = "6592352872"
+NVIDIABuild-Autogen-78 = "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"
