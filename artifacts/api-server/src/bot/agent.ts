@@ -1,12 +1,21 @@
-import Anthropic from "@anthropic-ai/sdk";
+import OpenAI from "openai";
 import { db, chatHistoryTable } from "@workspace/db";
 import { eq, asc } from "drizzle-orm";
 import { logger } from "../lib/logger";
 import type { EditAction } from "./state";
 
-let anthropic: Anthropic | null = null;
-if (process.env.ANTHROPIC_API_KEY) {
-  anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
+const FREE_MODEL = "meta-llama/llama-3.3-70b-instruct:free";
+
+let openrouter: OpenAI | null = null;
+if (process.env.OPENROUTER_API_KEY) {
+  openrouter = new OpenAI({
+    apiKey: process.env.OPENROUTER_API_KEY,
+    baseURL: "https://openrouter.ai/api/v1",
+    defaultHeaders: {
+      "HTTP-Referer": "https://editai.bot",
+      "X-Title": "EditAI Telegram Bot",
+    },
+  });
 }
 
 const SYSTEM_PROMPT = `Kamu adalah EditAI — asisten AI editor foto dan video profesional yang bekerja di Telegram.
@@ -32,7 +41,7 @@ ALUR KERJA:
 5. Jika pengguna hanya chat/bertanya → jawab secara natural tanpa action
 
 PENTING untuk analisis foto:
-- Jika foto tersedia, analisis konten, kualitas, dan context untuk memberikan rekomendasi terbaik
+- Jika ada deskripsi foto, analisis context untuk memberikan rekomendasi terbaik
 - Untuk foto portrait/selfie → rekomendasikan portrait_enhance atau enhance_photo
 - Untuk foto produk → rekomendasikan remove_background
 - Untuk foto blur/gelap → rekomendasikan enhance_photo atau upscale_photo
@@ -56,7 +65,9 @@ ATURAN action:
 - Jika hanya chat → action: null
 - Jangan eksekusi action tanpa konfirmasi KECUALI pengguna langsung minta dengan jelas ("langsung hapus background", "langsung buat anime")
 
-KONFIRMASI KATA: ya, oke, ok, yap, yep, lakukan, jalankan, yes, go, bagus, mantap, setuju, boleh, bisa, silakan, do it, sure, proceed`;
+KONFIRMASI KATA: ya, oke, ok, yap, yep, lakukan, jalankan, yes, go, bagus, mantap, setuju, boleh, bisa, silakan, do it, sure, proceed
+
+PENTING: Balas HANYA dengan JSON valid. Jangan tambahkan teks apapun di luar JSON.`;
 
 export interface AgentResponse {
   message: string;
@@ -78,29 +89,21 @@ export async function runAgent(
     .from(chatHistoryTable)
     .where(eq(chatHistoryTable.telegramId, telegramId))
     .orderBy(asc(chatHistoryTable.createdAt))
-    .limit(30);
+    .limit(20);
 
-  const messages: Anthropic.MessageParam[] = history.map((h) => ({
-    role: h.role as "user" | "assistant",
-    content: h.content,
-  }));
+  const messages: OpenAI.Chat.ChatCompletionMessageParam[] = [
+    { role: "system", content: SYSTEM_PROMPT },
+    ...history.map((h) => ({
+      role: h.role as "user" | "assistant",
+      content: h.content,
+    })),
+  ];
 
-  const userContent: Anthropic.ContentBlockParam[] = [];
-
-  if (imageBase64 && imageMediaType) {
-    userContent.push({
-      type: "image",
-      source: {
-        type: "base64",
-        media_type: imageMediaType as "image/jpeg" | "image/png" | "image/gif" | "image/webp",
-        data: imageBase64,
-      },
-    });
+  let userMessageContent = userText || "[Pengguna mengirim media tanpa pesan]";
+  if (imageBase64) {
+    userMessageContent = `[Pengguna mengirim foto]${userText ? ` dengan pesan: "${userText}"` : ""}`;
   }
-
-  userContent.push({ type: "text", text: userText || "[Pengguna mengirim media tanpa pesan]" });
-
-  messages.push({ role: "user", content: userContent });
+  messages.push({ role: "user", content: userMessageContent });
 
   let parsed: AgentResponse = {
     message: "Maaf, saya tidak bisa memproses permintaan itu sekarang. Coba lagi ya.",
@@ -110,41 +113,44 @@ export async function runAgent(
     askClarification: false,
   };
 
-  if (!anthropic) {
-    parsed.message = "⚠️ AI belum dikonfigurasi. Admin perlu menambahkan ANTHROPIC_API_KEY.";
+  if (!openrouter) {
+    parsed.message = "⚠️ AI belum dikonfigurasi. Admin perlu menambahkan OPENROUTER_API_KEY di Secrets.";
     return parsed;
   }
 
   try {
-    const response = await anthropic.messages.create({
-      model: "claude-sonnet-4-6",
-      max_tokens: 8192,
-      system: SYSTEM_PROMPT,
+    const response = await openrouter.chat.completions.create({
+      model: FREE_MODEL,
+      max_tokens: 1024,
       messages,
     });
 
-    const rawText = response.content[0].type === "text" ? response.content[0].text : "";
+    const rawText = response.choices[0]?.message?.content ?? "";
 
     const jsonMatch = rawText.match(/\{[\s\S]*\}/);
     if (jsonMatch) {
-      const raw = JSON.parse(jsonMatch[0]) as {
-        message?: string;
-        action?: string | null;
-        needs_confirmation?: boolean;
-        is_confirmation?: boolean;
-        ask_clarification?: boolean;
-        extra_params?: Record<string, string>;
-      };
-      parsed = {
-        message: raw.message ?? rawText,
-        action: (raw.action as EditAction) ?? null,
-        needsConfirmation: raw.needs_confirmation ?? false,
-        isConfirmation: raw.is_confirmation ?? false,
-        askClarification: raw.ask_clarification ?? false,
-        extraParams: raw.extra_params,
-      };
+      try {
+        const raw = JSON.parse(jsonMatch[0]) as {
+          message?: string;
+          action?: string | null;
+          needs_confirmation?: boolean;
+          is_confirmation?: boolean;
+          ask_clarification?: boolean;
+          extra_params?: Record<string, string>;
+        };
+        parsed = {
+          message: raw.message ?? rawText,
+          action: (raw.action as EditAction) ?? null,
+          needsConfirmation: raw.needs_confirmation ?? false,
+          isConfirmation: raw.is_confirmation ?? false,
+          askClarification: raw.ask_clarification ?? false,
+          extraParams: raw.extra_params,
+        };
+      } catch {
+        parsed.message = rawText;
+      }
     } else {
-      parsed.message = rawText;
+      parsed.message = rawText || parsed.message;
     }
 
     const historyContent = imageBase64
