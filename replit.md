@@ -1,44 +1,67 @@
-# [Project name]
+# AI Editor Telegram Bot
 
-_Replace the heading above with the project's name, and this line with one sentence describing what this app does for users._
+Bot Telegram berbasis AI yang membantu pengguna mengedit foto dan video menggunakan perintah bahasa alami, dilengkapi sistem kredit, AI chat (Claude), dan panel admin.
 
 ## Run & Operate
 
-- `pnpm --filter @workspace/api-server run dev` — run the API server (port 5000)
-- `pnpm run typecheck` — full typecheck across all packages
-- `pnpm run build` — typecheck + build all packages
-- `pnpm --filter @workspace/api-spec run codegen` — regenerate API hooks and Zod schemas from the OpenAPI spec
-- `pnpm --filter @workspace/db run push` — push DB schema changes (dev only)
-- Required env: `DATABASE_URL` — Postgres connection string
+- `pnpm --filter @workspace/api-server run dev` — jalankan API server + bot Telegram (port 8080)
+- `pnpm run typecheck` — full typecheck semua package
+- `pnpm run build` — typecheck + build semua package
+- `pnpm --filter @workspace/api-spec run codegen` — regenerate API hooks dan Zod schemas
+- `pnpm --filter @workspace/db run push` — push DB schema (dev only)
+- Required env: `DATABASE_URL`, `TELEGRAM_BOT_TOKEN`, `ANTHROPIC_API_KEY`
+- Optional env: `ADMIN_TELEGRAM_IDS` — comma-separated Telegram IDs untuk akses admin
 
 ## Stack
 
 - pnpm workspaces, Node.js 24, TypeScript 5.9
 - API: Express 5
+- Bot: Grammy (Telegram Bot Framework)
+- AI: Anthropic Claude (claude-haiku-4-5 untuk chat & tren)
 - DB: PostgreSQL + Drizzle ORM
 - Validation: Zod (`zod/v4`), `drizzle-zod`
-- API codegen: Orval (from OpenAPI spec)
-- Build: esbuild (CJS bundle)
+- Build: esbuild (CJS bundle) — grammy di-externalize karena native modules
 
 ## Where things live
 
-_Populate as you build — short repo map plus pointers to the source-of-truth file for DB schema, API contracts, theme files, etc._
+- `lib/db/src/schema/users.ts` — tabel users (telegramId, credits, premium, banned, dll)
+- `lib/db/src/schema/chat_history.ts` — riwayat percakapan AI per user
+- `artifacts/api-server/src/bot/` — semua logika bot Telegram
+- `artifacts/api-server/src/bot/index.ts` — entry point bot, semua handler terdaftar di sini
+- `artifacts/api-server/src/bot/handlers/` — handler per fitur (start, photo, video, chat, admin, dll)
+- `artifacts/api-server/src/bot/keyboards.ts` — inline keyboard Telegram
+- `artifacts/api-server/src/bot/credits.ts` — sistem kredit & reset harian
+- `artifacts/api-server/src/bot/ai.ts` — AI chat dengan riwayat konteks
+- `artifacts/api-server/src/bot/trends.ts` — Trend Assistant via Claude
 
 ## Architecture decisions
 
-_Populate as you build — non-obvious choices a reader couldn't infer from the code (3-5 bullets)._
+- Grammy di-externalize di esbuild (`build.mjs`) karena memuat `platform.node` secara dinamis — tidak bisa di-bundle.
+- Bot berjalan dalam proses yang sama dengan Express server (di `index.ts`) menggunakan long polling.
+- Semua pesan teks otomatis diteruskan ke AI chat (kecuali menu button dan perintah `/`).
+- Reset kredit harian dilakukan secara lazy saat user berinteraksi, bukan dengan cron job.
+- Konteks percakapan AI disimpan di DB (max 20 pesan terakhir per user).
 
 ## Product
 
-_Describe the high-level user-facing capabilities of this app once they exist._
+- Pengguna bisa mengirim foto → pilih fitur editing (jernihkan, hapus bg, anime, dll)
+- Pengguna bisa mengirim video → pilih fitur editing (upscale, subtitle, stabilkan, dll)
+- AI Chat: chat langsung dengan Claude tentang teknik editing
+- Trend Assistant: rekomendasi tren foto/video dari Claude
+- Sistem kredit: 3 kredit/hari (gratis), 50 kredit/hari (premium), reset otomatis 24 jam
+- Admin panel via perintah bot: /users, /stats, /premium, /addcredit, /removecredit, /broadcast, /ban, /unban
 
 ## User preferences
 
-_Populate as you build — explicit user instructions worth remembering across sessions._
+- Bot dan respons dalam Bahasa Indonesia secara default
+- Bisa menanggapi bahasa asing jika pengguna menggunakannya
 
 ## Gotchas
 
-_Populate as you build — sharp edges, "always run X before Y" rules._
+- Grammy HARUS di-externalize di `build.mjs` — tanpa ini bot crash saat start
+- Jangan jalankan `pnpm dev` di root workspace
+- Admin IDs diset via env var `ADMIN_TELEGRAM_IDS` (comma-separated), bukan hardcoded
+- Setelah update schema DB, selalu jalankan `pnpm --filter @workspace/db run push`
 
 ## Pointers
 
