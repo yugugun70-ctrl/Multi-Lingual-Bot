@@ -13,10 +13,11 @@ if (process.env.NVIDIA_API_KEY) {
   });
 }
 
-// Model NVIDIA NIM
-const NVIDIA_VISION_MODEL = "nvidia/llama-3.2-11b-vision-instruct"; // Chat + analisis gambar/OCR/dokumen
-const NVIDIA_TEXT_MODEL = "nvidia/llama-3.1-nemotron-70b-instruct";  // Chat + coding + reasoning
-const NVIDIA_FALLBACK_MODEL = "meta/llama-3.1-8b-instruct";           // Fallback cepat
+// Model NVIDIA NIM — terverifikasi aktif di akun ini
+const NVIDIA_VISION_MODEL = "meta/llama-3.2-11b-vision-instruct";       // Vision: analisis gambar/OCR/dokumen
+const NVIDIA_TEXT_MODEL = "nvidia/llama-3.3-nemotron-super-49b-v1";     // Chat + coding + reasoning (Nemotron)
+const NVIDIA_FALLBACK_MODEL = "nvidia/llama-3.1-nemotron-nano-8b-v1";   // Fallback ringan (Nemotron Nano)
+const NVIDIA_FALLBACK2_MODEL = "meta/llama-3.3-70b-instruct";           // Fallback kedua (Meta Llama)
 
 const SYSTEM_PROMPT = `Kamu adalah EditAI — asisten AI editor foto dan video profesional di Telegram.
 Kamu seperti ChatGPT atau Meta AI: bisa ngobrol natural, tidak ada menu tombol, tidak ada pilihan kaku.
@@ -88,8 +89,8 @@ async function callNvidiaWithFallback(
 
   // Pilih model: vision model jika ada gambar, text model untuk teks saja
   const modelsToTry = hasImage
-    ? [NVIDIA_VISION_MODEL, NVIDIA_FALLBACK_MODEL]
-    : [NVIDIA_TEXT_MODEL, NVIDIA_VISION_MODEL, NVIDIA_FALLBACK_MODEL];
+    ? [NVIDIA_VISION_MODEL, NVIDIA_FALLBACK2_MODEL, NVIDIA_FALLBACK_MODEL]
+    : [NVIDIA_TEXT_MODEL, NVIDIA_FALLBACK_MODEL, NVIDIA_VISION_MODEL, NVIDIA_FALLBACK2_MODEL];
 
   for (const model of modelsToTry) {
     try {
