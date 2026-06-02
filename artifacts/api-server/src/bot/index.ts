@@ -159,23 +159,29 @@ export function createBot(): Bot {
       );
 
       try {
-        let fileUrl = pending.fileType === "photo" ? state.lastPhotoFileUrl : null;
+        // text_to_video tidak membutuhkan file
+        const isTextToVideo = action === "text_to_video";
+        let fileUrl: string | null = null;
 
-        if (!fileUrl) {
-          const fileId = pending.fileId;
-          const file = await ctx.api.getFile(fileId);
-          fileUrl = `https://api.telegram.org/file/bot${token}/${file.file_path}`;
-        }
+        if (!isTextToVideo) {
+          fileUrl = pending.fileType === "photo" ? state.lastPhotoFileUrl : null;
 
-        if (!fileUrl) {
-          await ctx.reply("❌ File tidak ditemukan. Coba kirim ulang foto/video kamu.");
-          clearPending(telegramId);
-          return;
+          if (!fileUrl) {
+            const fileId = pending.fileId;
+            const file = await ctx.api.getFile(fileId);
+            fileUrl = `https://api.telegram.org/file/bot${token}/${file.file_path}`;
+          }
+
+          if (!fileUrl) {
+            await ctx.reply("❌ File tidak ditemukan. Coba kirim ulang foto/video kamu.");
+            clearPending(telegramId);
+            return;
+          }
         }
 
         const result = await executeEditAction(
           action,
-          fileUrl,
+          fileUrl ?? "",
           pending.fileType,
           pending.extraParams
         );
@@ -208,6 +214,12 @@ export function createBot(): Bot {
           } else if (pending.action === "video_subtitle" || pending.action === "video_caption") {
             await ctx.replyWithDocument(result.outputUrl, {
               caption: `✅ Subtitle berhasil dibuat! Sisa kuota: *${quotaResult.remaining}*`,
+              parse_mode: "Markdown",
+            });
+          } else if (result.isVideo || pending.action === "text_to_video" || pending.action === "image_to_video" || pending.action.startsWith("photo_to_video")) {
+            // Video output dari Kling AI
+            await ctx.replyWithVideo(result.outputUrl, {
+              caption: `🎬 ${result.message ?? "Video berhasil dibuat!"}\n\nSisa kuota: *${quotaResult.remaining}*\n\n_Powered by Kling AI_`,
               parse_mode: "Markdown",
             });
           } else {

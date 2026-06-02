@@ -25,8 +25,10 @@ const VIDEO_EDIT_ACTIONS = new Set<EditAction>([
   "video_resize", "video_watermark", "video_noise_reduction",
 ]);
 
+// Semua aksi video generation (Kling AI) menggunakan kuota photo_to_video
 const PHOTO_TO_VIDEO_ACTIONS = new Set<EditAction>([
   "photo_to_video_cinematic", "photo_to_video_zoom", "photo_to_video_pan",
+  "image_to_video", "text_to_video",
 ]);
 
 export function getQuotaTypeForAction(action: EditAction): QuotaType {
@@ -119,7 +121,7 @@ export function getQuotaLimitMessage(type: QuotaType): string {
     chat: `❌ *Kuota chat AI habis!*\n\nKamu sudah mencapai batas 50 pesan hari ini. Reset otomatis dalam 24 jam.\n\nKetik /premium untuk upgrade dan chat tanpa batas! ⭐`,
     photo_edit: `❌ *Kuota edit foto habis!*\n\nKamu sudah menggunakan 5 edit foto hari ini. Reset otomatis dalam 24 jam.\n\nKetik /premium untuk mendapatkan 50 edit foto per hari! ⭐`,
     video_edit: `❌ *Kuota edit video habis!*\n\nKamu sudah menggunakan 2 proses video hari ini. Reset otomatis dalam 24 jam.\n\nKetik /premium untuk mendapatkan 20 proses video per hari! ⭐`,
-    photo_to_video: `❌ *Kuota Photo to Video habis!*\n\nKamu sudah menggunakan 1 proses photo-to-video hari ini. Reset otomatis dalam 24 jam.\n\nKetik /premium untuk mendapatkan 10 proses per hari! ⭐`,
+    photo_to_video: `❌ *Kuota Video Generation habis!*\n\nKamu sudah menggunakan kuota photo/text-to-video hari ini. Reset otomatis dalam 24 jam.\n\nKetik /premium untuk mendapatkan 10 proses per hari! ⭐`,
   };
   return messages[type];
 }

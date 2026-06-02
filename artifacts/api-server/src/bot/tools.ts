@@ -1,4 +1,5 @@
 import { logger } from "../lib/logger";
+import { klingTextToVideo, klingImageToVideo, isKlingConfigured } from "../lib/kling";
 import https from "node:https";
 import http from "node:http";
 import type { EditAction } from "./state";
@@ -12,6 +13,7 @@ export interface ToolResult {
   outputUrls?: string[];
   error?: string;
   message?: string;
+  isVideo?: boolean;
 }
 
 async function fetchBuffer(url: string): Promise<Buffer> {
@@ -24,12 +26,6 @@ async function fetchBuffer(url: string): Promise<Buffer> {
       res.on("error", reject);
     }).on("error", reject);
   });
-}
-
-async function toBase64DataUrl(url: string): Promise<string> {
-  const buf = await fetchBuffer(url);
-  const mime = url.includes(".mp4") ? "video/mp4" : "image/jpeg";
-  return `data:${mime};base64,${buf.toString("base64")}`;
 }
 
 async function replicateRun(
@@ -83,6 +79,8 @@ async function replicateRun(
 
   return { success: false, error: "Timeout: proses editing terlalu lama." };
 }
+
+// ─── Foto Editing (NVIDIA-powered via Replicate models) ───────────────────────
 
 export async function removeBackground(imageUrl: string): Promise<ToolResult> {
   if (REMOVE_BG_KEY) {
@@ -161,17 +159,78 @@ export async function styleTransfer(imageUrl: string, style: string): Promise<To
   );
 }
 
-export async function photoToVideo(imageUrl: string, type: "cinematic" | "zoom" | "pan"): Promise<ToolResult> {
-  const prompts = {
-    cinematic: "cinematic camera movement, professional film look",
-    zoom: "slow zoom in effect, smooth motion",
-    pan: "smooth pan left to right, steady camera",
+// ─── Video Generation via Kling AI ───────────────────────────────────────────
+
+export async function photoToVideoKling(
+  imageUrl: string,
+  type: "cinematic" | "zoom" | "pan"
+): Promise<ToolResult> {
+  if (!isKlingConfigured()) {
+    return {
+      success: false,
+      error: "Kling AI belum dikonfigurasi. Admin perlu menambahkan KLING_ACCESS_KEY dan KLING_SECRET_KEY di Secrets.",
+    };
+  }
+
+  const prompts: Record<string, string> = {
+    cinematic: "cinematic camera movement, professional film look, smooth motion",
+    zoom: "slow zoom in effect, smooth motion, steady",
+    pan: "smooth pan left to right, steady camera, cinematic",
   };
-  return replicateRun(
-    "stability-ai/stable-video-diffusion:3f0457e4619daac51203dedb472816fd4af51f3149fa7a9e0b5ffcf1b8172438",
-    { input_image: imageUrl, motion_bucket_id: type === "zoom" ? 40 : 127, fps_id: 25 }
-  );
+
+  const result = await klingImageToVideo(imageUrl, prompts[type]);
+  return {
+    success: result.success,
+    outputUrl: result.videoUrl,
+    error: result.error,
+    isVideo: result.success,
+    message: result.success ? `✅ Video ${type} berhasil dibuat dengan Kling AI!` : undefined,
+  };
 }
+
+export async function imageToVideo(
+  imageUrl: string,
+  prompt?: string
+): Promise<ToolResult> {
+  if (!isKlingConfigured()) {
+    return {
+      success: false,
+      error: "Kling AI belum dikonfigurasi. Admin perlu menambahkan KLING_ACCESS_KEY dan KLING_SECRET_KEY di Secrets.",
+    };
+  }
+
+  const result = await klingImageToVideo(
+    imageUrl,
+    prompt ?? "smooth cinematic motion, high quality video"
+  );
+  return {
+    success: result.success,
+    outputUrl: result.videoUrl,
+    error: result.error,
+    isVideo: result.success,
+    message: result.success ? "✅ Video berhasil dibuat dari foto dengan Kling AI!" : undefined,
+  };
+}
+
+export async function textToVideo(prompt: string): Promise<ToolResult> {
+  if (!isKlingConfigured()) {
+    return {
+      success: false,
+      error: "Kling AI belum dikonfigurasi. Admin perlu menambahkan KLING_ACCESS_KEY dan KLING_SECRET_KEY di Secrets.",
+    };
+  }
+
+  const result = await klingTextToVideo(prompt);
+  return {
+    success: result.success,
+    outputUrl: result.videoUrl,
+    error: result.error,
+    isVideo: result.success,
+    message: result.success ? "✅ Video berhasil dibuat dari teks dengan Kling AI!" : undefined,
+  };
+}
+
+// ─── Video Editing ────────────────────────────────────────────────────────────
 
 export async function videoUpscale(videoUrl: string): Promise<ToolResult> {
   return replicateRun(
@@ -194,6 +253,8 @@ export async function videoNoiseReduction(videoUrl: string): Promise<ToolResult>
   );
 }
 
+// ─── Router Utama ─────────────────────────────────────────────────────────────
+
 export async function executeEditAction(
   action: EditAction,
   fileUrl: string,
@@ -201,6 +262,7 @@ export async function executeEditAction(
   extraParams?: Record<string, string>
 ): Promise<ToolResult> {
   switch (action) {
+    // Foto editing (Replicate)
     case "remove_background": return removeBackground(fileUrl);
     case "upscale_photo": return upscalePhoto(fileUrl);
     case "enhance_photo": return enhancePhoto(fileUrl);
@@ -210,17 +272,30 @@ export async function executeEditAction(
     case "color_correction": return colorCorrection(fileUrl);
     case "remove_object": return removeBackground(fileUrl);
     case "style_transfer": return styleTransfer(fileUrl, extraParams?.style ?? "oil painting");
-    case "photo_to_video_cinematic": return photoToVideo(fileUrl, "cinematic");
-    case "photo_to_video_zoom": return photoToVideo(fileUrl, "zoom");
-    case "photo_to_video_pan": return photoToVideo(fileUrl, "pan");
+
+    // Photo-to-video via Kling AI
+    case "photo_to_video_cinematic": return photoToVideoKling(fileUrl, "cinematic");
+    case "photo_to_video_zoom": return photoToVideoKling(fileUrl, "zoom");
+    case "photo_to_video_pan": return photoToVideoKling(fileUrl, "pan");
+    case "image_to_video": return imageToVideo(fileUrl, extraParams?.prompt);
+
+    // Text-to-video via Kling AI (fileUrl tidak dipakai, pakai prompt dari extraParams)
+    case "text_to_video": {
+      const prompt = extraParams?.prompt ?? "cinematic video, high quality";
+      return textToVideo(prompt);
+    }
+
+    // Video editing (Replicate)
     case "video_upscale": return videoUpscale(fileUrl);
     case "video_subtitle": return videoSubtitle(fileUrl, extraParams?.language ?? "id");
     case "video_caption": return videoSubtitle(fileUrl, extraParams?.language ?? "id");
     case "video_noise_reduction": return videoNoiseReduction(fileUrl);
+
     case "video_stabilize":
     case "video_resize":
     case "video_watermark":
       return { success: false, error: "Fitur ini akan segera tersedia." };
+
     default:
       return { success: false, error: "Aksi tidak dikenali." };
   }

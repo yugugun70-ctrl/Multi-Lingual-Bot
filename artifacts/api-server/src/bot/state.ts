@@ -8,9 +8,14 @@ export type EditAction =
   | "color_correction"
   | "remove_object"
   | "style_transfer"
+  // Photo-to-video (Kling AI)
   | "photo_to_video_cinematic"
   | "photo_to_video_zoom"
   | "photo_to_video_pan"
+  | "image_to_video"
+  // Text-to-video (Kling AI)
+  | "text_to_video"
+  // Video editing
   | "video_upscale"
   | "video_stabilize"
   | "video_subtitle"

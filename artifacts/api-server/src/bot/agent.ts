@@ -4,40 +4,41 @@ import { eq, asc } from "drizzle-orm";
 import { logger } from "../lib/logger";
 import type { EditAction } from "./state";
 
-// Daftar model gratis — dicoba berurutan jika satu kena rate limit
-const FREE_MODELS = [
-  "meta-llama/llama-3.3-70b-instruct:free",
-  "google/gemma-4-31b-it:free",
-  "qwen/qwen3-next-80b-a3b-instruct:free",
-  "nvidia/nemotron-3-super-120b-a12b:free",
-  "moonshotai/kimi-k2.6:free",
-];
-
-let openrouter: OpenAI | null = null;
-if (process.env.OPENROUTER_API_KEY) {
-  openrouter = new OpenAI({
-    apiKey: process.env.OPENROUTER_API_KEY,
-    baseURL: "https://openrouter.ai/api/v1",
-    defaultHeaders: {
-      "HTTP-Referer": "https://editai.bot",
-      "X-Title": "EditAI Telegram Bot",
-    },
+// NVIDIA NIM API — AI utama untuk chat, coding, vision, OCR, analisis dokumen
+let nvidiaClient: OpenAI | null = null;
+if (process.env.NVIDIA_API_KEY) {
+  nvidiaClient = new OpenAI({
+    apiKey: process.env.NVIDIA_API_KEY,
+    baseURL: "https://integrate.api.nvidia.com/v1",
   });
 }
 
+// Model NVIDIA NIM
+const NVIDIA_VISION_MODEL = "nvidia/llama-3.2-11b-vision-instruct"; // Chat + analisis gambar/OCR/dokumen
+const NVIDIA_TEXT_MODEL = "nvidia/llama-3.1-nemotron-70b-instruct";  // Chat + coding + reasoning
+const NVIDIA_FALLBACK_MODEL = "meta/llama-3.1-8b-instruct";           // Fallback cepat
+
 const SYSTEM_PROMPT = `Kamu adalah EditAI — asisten AI editor foto dan video profesional di Telegram.
 Kamu seperti ChatGPT atau Meta AI: bisa ngobrol natural, tidak ada menu tombol, tidak ada pilihan kaku.
+Kamu didukung oleh NVIDIA AI (Llama Vision & Nemotron).
 
 KEPRIBADIAN:
 - Ramah, santai, profesional — seperti teman yang ahli editing
 - Aktif memberi rekomendasi dan inspirasi
 - Selalu balas dalam BAHASA YANG SAMA dengan pengguna (default Bahasa Indonesia)
 - Jika pengguna tidak mengirim foto/video, tetap jawab pertanyaan mereka dengan normal
+- Jika ada gambar, analisis dengan detail (OCR, identifikasi objek, warna, komposisi)
 
 FITUR EDITING YANG KAMU BISA:
 FOTO: remove_background, upscale_photo, enhance_photo, anime_effect, cartoon_effect, portrait_enhance, color_correction, remove_object, style_transfer
 VIDEO: video_upscale, video_stabilize, video_subtitle, video_caption, video_resize, video_watermark, video_noise_reduction
-FOTO KE VIDEO: photo_to_video_cinematic, photo_to_video_zoom, photo_to_video_pan
+FOTO KE VIDEO (Kling AI): photo_to_video_cinematic, photo_to_video_zoom, photo_to_video_pan, image_to_video
+TEXT KE VIDEO (Kling AI): text_to_video
+
+ROUTING OTOMATIS (internal):
+- Permintaan chat, analisis, coding, OCR, dokumen → NVIDIA AI
+- Permintaan membuat video dari foto → Kling AI (image_to_video / photo_to_video_*)
+- Permintaan membuat video dari teks → Kling AI (text_to_video)
 
 ALUR KERJA NATURAL:
 1. Pengguna kirim foto/video TANPA instruksi → tanya ingin diapakan
@@ -50,6 +51,8 @@ CONTOH CHAT NATURAL:
 - "Foto saya cocok diedit apa?" → Jawab dengan saran, action: null
 - "Tren edit video TikTok?" → Jawab saja, action: null  
 - "Hapus background foto ini" → Rekomendasikan remove_background, needs_confirmation: true
+- "Buat video dari foto ini" → Rekomendasikan image_to_video (Kling AI), needs_confirmation: true
+- "Buat video orang berjalan di pantai" → Rekomendasikan text_to_video (Kling AI), needs_confirmation: true
 - "Oke lakukan" → is_confirmation: true
 
 FORMAT RESPONS (WAJIB JSON VALID, tidak ada teks di luar JSON):
@@ -62,6 +65,8 @@ FORMAT RESPONS (WAJIB JSON VALID, tidak ada teks di luar JSON):
   "extra_params": {}
 }
 
+Untuk text_to_video, sertakan prompt video di extra_params: {"prompt": "deskripsi video"}
+
 KATA KONFIRMASI: ya, oke, ok, yap, yep, lakukan, jalankan, yes, go, bagus, mantap, setuju, boleh, bisa, silakan, do it, sure, proceed, gas, lanjut, siap, iya`;
 
 export interface AgentResponse {
@@ -73,28 +78,44 @@ export interface AgentResponse {
   extraParams?: Record<string, string>;
 }
 
-async function callWithFallback(messages: OpenAI.Chat.ChatCompletionMessageParam[]): Promise<string> {
-  if (!openrouter) throw new Error("OpenRouter tidak dikonfigurasi");
+async function callNvidiaWithFallback(
+  messages: OpenAI.Chat.ChatCompletionMessageParam[],
+  hasImage: boolean
+): Promise<string> {
+  if (!nvidiaClient) {
+    throw new Error("NVIDIA_API_KEY tidak dikonfigurasi. Admin perlu menambahkan NVIDIA_API_KEY di Secrets.");
+  }
 
-  for (const model of FREE_MODELS) {
+  // Pilih model: vision model jika ada gambar, text model untuk teks saja
+  const modelsToTry = hasImage
+    ? [NVIDIA_VISION_MODEL, NVIDIA_FALLBACK_MODEL]
+    : [NVIDIA_TEXT_MODEL, NVIDIA_VISION_MODEL, NVIDIA_FALLBACK_MODEL];
+
+  for (const model of modelsToTry) {
     try {
-      const response = await openrouter.chat.completions.create({
+      logger.info({ model, hasImage }, "Memanggil NVIDIA NIM API");
+      const response = await nvidiaClient.chat.completions.create({
         model,
         max_tokens: 1024,
         messages,
+        temperature: 0.7,
       });
       const text = response.choices[0]?.message?.content ?? "";
-      if (text) return text;
+      if (text) {
+        logger.info({ model }, "NVIDIA NIM berhasil merespons");
+        return text;
+      }
     } catch (err: any) {
       const is429 = err?.status === 429 || err?.code === 429;
-      if (is429) {
-        logger.warn({ model }, "Model rate-limited, coba model berikutnya...");
+      const is503 = err?.status === 503;
+      if (is429 || is503) {
+        logger.warn({ model, status: err?.status }, "Model rate-limited atau tidak tersedia, coba model berikutnya...");
         continue;
       }
       throw err;
     }
   }
-  throw new Error("Semua model gratis sedang rate-limited. Coba lagi sebentar.");
+  throw new Error("Semua model NVIDIA sedang penuh. Coba lagi sebentar.");
 }
 
 export async function runAgent(
@@ -118,11 +139,32 @@ export async function runAgent(
     })),
   ];
 
-  let userMessageContent = userText || "[Pengguna mengirim media tanpa pesan]";
+  // Buat user message — jika ada gambar, pakai format vision
+  let userHistoryContent: string;
   if (imageBase64) {
-    userMessageContent = `[Pengguna mengirim foto]${userText ? ` dengan keterangan: "${userText}"` : " tanpa keterangan"}`;
+    const dataUrl = `data:${imageMediaType ?? "image/jpeg"};base64,${imageBase64}`;
+    const textPart = userText ? `dengan keterangan: "${userText}"` : "tanpa keterangan";
+    
+    // Format multimodal untuk NVIDIA vision model
+    messages.push({
+      role: "user",
+      content: [
+        {
+          type: "text",
+          text: `[Pengguna mengirim foto ${textPart}]. Analisis gambar ini dan bantu pengguna.`,
+        },
+        {
+          type: "image_url",
+          image_url: { url: dataUrl },
+        },
+      ],
+    });
+    userHistoryContent = `[Pengguna mengirim foto/gambar]${userText ? ` dengan pesan: "${userText}"` : ""}`;
+  } else {
+    const content = userText || "[Pengguna mengirim media tanpa pesan]";
+    messages.push({ role: "user", content });
+    userHistoryContent = content;
   }
-  messages.push({ role: "user", content: userMessageContent });
 
   let parsed: AgentResponse = {
     message: "Maaf, saya tidak bisa menjawab saat ini. Coba lagi ya!",
@@ -132,13 +174,13 @@ export async function runAgent(
     askClarification: false,
   };
 
-  if (!openrouter) {
-    parsed.message = "⚠️ AI belum dikonfigurasi. Admin perlu menambahkan OPENROUTER_API_KEY di Secrets.";
+  if (!nvidiaClient) {
+    parsed.message = "⚠️ NVIDIA AI belum dikonfigurasi. Admin perlu menambahkan NVIDIA_API_KEY di Secrets.";
     return parsed;
   }
 
   try {
-    const rawText = await callWithFallback(messages);
+    const rawText = await callNvidiaWithFallback(messages, !!imageBase64);
 
     const jsonMatch = rawText.match(/\{[\s\S]*\}/);
     if (jsonMatch) {
@@ -166,18 +208,16 @@ export async function runAgent(
       parsed.message = rawText || parsed.message;
     }
 
-    const historyContent = imageBase64
-      ? "[Pengguna mengirim foto/gambar]" + (userText ? ` dengan pesan: "${userText}"` : "")
-      : userText;
-
     await db.insert(chatHistoryTable).values([
-      { telegramId, role: "user", content: historyContent },
+      { telegramId, role: "user", content: userHistoryContent },
       { telegramId, role: "assistant", content: parsed.message },
     ]);
   } catch (err: any) {
-    logger.error({ err }, "Agent error");
-    if (err?.message?.includes("rate-limited")) {
-      parsed.message = "⏳ AI sedang sibuk, semua model gratis sedang penuh. Coba lagi dalam 1-2 menit ya!";
+    logger.error({ err }, "NVIDIA Agent error");
+    if (err?.message?.includes("rate-limited") || err?.message?.includes("penuh")) {
+      parsed.message = "⏳ NVIDIA AI sedang sibuk. Coba lagi dalam 1-2 menit ya!";
+    } else if (err?.message?.includes("NVIDIA_API_KEY")) {
+      parsed.message = `⚠️ ${err.message}`;
     }
   }
 
