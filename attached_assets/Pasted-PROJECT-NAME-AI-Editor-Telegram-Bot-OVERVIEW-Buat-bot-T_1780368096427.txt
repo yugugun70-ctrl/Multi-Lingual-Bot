@@ -1,0 +1,139 @@
+PROJECT NAME: AI Editor Telegram Bot
+
+OVERVIEW
+
+Buat bot Telegram berbasis Node.js dan Telegraf yang berfungsi sebagai asisten AI untuk edit foto dan video.
+
+Bot harus mampu mengobrol dengan pengguna seperti ChatGPT dan membantu pengguna mengedit foto maupun video menggunakan perintah bahasa alami.
+
+FEATURES
+
+1. User Management
+
+- Simpan user ke database otomatis saat /start
+- Simpan Telegram ID
+- Simpan username
+- Simpan tanggal registrasi
+- Simpan status Premium atau Free
+
+2. Credit System
+
+- User gratis mendapat 3 kredit per hari
+- Kredit reset otomatis setiap 24 jam
+- Premium mendapat akses lebih tinggi
+- Admin dapat menambah atau mengurangi kredit
+
+3. AI Chat Assistant
+
+- AI dapat memahami pesan pengguna
+- AI dapat memberikan rekomendasi edit foto
+- AI dapat memberikan rekomendasi edit video
+- AI dapat menjawab pertanyaan umum tentang editing
+- AI dapat mempertahankan konteks percakapan
+
+4. Photo Editing
+
+- Enhance Photo
+- Upscale Resolution
+- Remove Object
+- Remove Background
+- Replace Background
+- Color Correction
+- Portrait Enhancement
+- Style Transfer
+- Cartoon Effect
+- Anime Effect
+
+5. Video Editing
+
+- Video Upscale
+- Video Stabilization
+- Noise Removal
+- Subtitle Generation
+- Auto Caption
+- Video Resize
+- Watermark
+
+6. Photo To Video
+
+- Generate cinematic movement from image
+- Generate zoom effect
+- Generate pan effect
+- Generate AI animation
+
+7. Trend Assistant
+
+- Memberikan ide edit yang sedang populer
+- Memberikan inspirasi konten video
+- Memberikan rekomendasi style visual
+
+8. Admin Panel
+
+- /users
+- /stats
+- /premium
+- /addcredit
+- /removecredit
+- /broadcast
+- /ban
+- /unban
+
+DATABASE
+
+Gunakan database yang sederhana dan mudah dipelihara.
+
+TABLE USERS
+
+id
+telegram_id
+username
+first_name
+credits
+premium
+register_date
+last_daily_reset
+
+USER FLOW
+
+/start
+
+Bot:
+Selamat datang
+
+Sisa kredit hari ini: X
+
+Kirim foto atau video untuk memulai.
+
+Jika pengguna mengirim foto:
+
+Bot:
+Apa yang ingin Anda lakukan?
+
+Pilihan:
+
+- Jernihkan Foto
+- Hapus Objek
+- Ganti Background
+- Ubah Menjadi Video
+
+Jika pengguna mengirim video:
+
+Bot:
+Apa yang ingin Anda lakukan?
+
+Pilihan:
+
+- Jernihkan Video
+- Stabilkan Video
+- Tambah Subtitle
+- Resize Video
+
+ARCHITECTURE
+
+- Node.js
+- Telegraf
+- TypeScript
+- Modular structure
+- Database abstraction
+- Easy plugin system
+- Ready for future website and mobile app integration
