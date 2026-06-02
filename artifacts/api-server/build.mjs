@@ -31,6 +31,8 @@ async function buildAll() {
       "*.node",
       "grammy",
       "sharp",
+      "@imgly/background-removal-node",
+      "onnxruntime-node",
       "better-sqlite3",
       "sqlite3",
       "canvas",

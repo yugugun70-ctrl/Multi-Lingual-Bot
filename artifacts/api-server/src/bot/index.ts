@@ -203,30 +203,59 @@ export function createBot(): Bot {
         }
 
         if (result.outputUrl) {
-          const caption = `✅ Selesai! Sisa kuota: *${quotaResult.remaining}*\n\n_Ada yang mau diedit lagi? Kirim foto baru atau tanya saya!_`;
-          if (result.outputUrl.startsWith("data:image")) {
-            const base64Data = result.outputUrl.split(",")[1];
-            const imgBuf = Buffer.from(base64Data, "base64");
-            await ctx.replyWithPhoto(new Blob([imgBuf], { type: "image/png" }) as any, {
+          const isVideoAction = result.isVideo
+            || pending.action === "text_to_video"
+            || pending.action === "image_to_video"
+            || pending.action.startsWith("photo_to_video")
+            || pending.action === "video_upscale"
+            || pending.action === "video_stabilize"
+            || pending.action === "video_resize"
+            || pending.action === "video_watermark"
+            || pending.action === "video_noise_reduction";
+
+          const isSubtitle = pending.action === "video_subtitle" || pending.action === "video_caption";
+
+          const caption = `✅ ${result.message ?? "Selesai!"}\n\nSisa kuota: *${quotaResult.remaining}*\n\n_Ada yang mau diedit lagi? Kirim foto/video baru atau tanya saya!_`;
+
+          if (isSubtitle) {
+            // Subtitle: kirim sebagai dokumen .srt
+            if (result.outputUrl.startsWith("data:")) {
+              const b64 = result.outputUrl.split(",")[1];
+              const srtBuf = Buffer.from(b64, "base64");
+              await ctx.replyWithDocument(new Blob([srtBuf], { type: "text/plain" }) as any, {
+                caption: `✅ Subtitle berhasil dibuat! Sisa kuota: *${quotaResult.remaining}*`,
+                parse_mode: "Markdown",
+              });
+            } else {
+              await ctx.replyWithDocument(result.outputUrl, {
+                caption: `✅ Subtitle berhasil dibuat! Sisa kuota: *${quotaResult.remaining}*`,
+                parse_mode: "Markdown",
+              });
+            }
+          } else if (isVideoAction) {
+            // Video output (base64 atau URL)
+            if (result.outputUrl.startsWith("data:video")) {
+              const b64 = result.outputUrl.split(",")[1];
+              const vidBuf = Buffer.from(b64, "base64");
+              await ctx.replyWithVideo(new Blob([vidBuf], { type: "video/mp4" }) as any, {
+                caption,
+                parse_mode: "Markdown",
+              });
+            } else {
+              await ctx.replyWithVideo(result.outputUrl, { caption, parse_mode: "Markdown" });
+            }
+          } else if (result.outputUrl.startsWith("data:image")) {
+            // Foto output base64
+            const b64 = result.outputUrl.split(",")[1];
+            const mime = result.outputUrl.startsWith("data:image/png") ? "image/png" : "image/jpeg";
+            const imgBuf = Buffer.from(b64, "base64");
+            await ctx.replyWithPhoto(new Blob([imgBuf], { type: mime }) as any, {
               caption,
-              parse_mode: "Markdown",
-            });
-          } else if (pending.action === "video_subtitle" || pending.action === "video_caption") {
-            await ctx.replyWithDocument(result.outputUrl, {
-              caption: `✅ Subtitle berhasil dibuat! Sisa kuota: *${quotaResult.remaining}*`,
-              parse_mode: "Markdown",
-            });
-          } else if (result.isVideo || pending.action === "text_to_video" || pending.action === "image_to_video" || pending.action.startsWith("photo_to_video")) {
-            // Video output dari Kling AI
-            await ctx.replyWithVideo(result.outputUrl, {
-              caption: `🎬 ${result.message ?? "Video berhasil dibuat!"}\n\nSisa kuota: *${quotaResult.remaining}*\n\n_Powered by Kling AI_`,
               parse_mode: "Markdown",
             });
           } else {
-            await ctx.replyWithPhoto(result.outputUrl, {
-              caption,
-              parse_mode: "Markdown",
-            });
+            // URL langsung
+            await ctx.replyWithPhoto(result.outputUrl, { caption, parse_mode: "Markdown" });
           }
         }
       } catch (err) {

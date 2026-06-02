@@ -1,2 +1,4 @@
 - [Grammy esbuild external](grammy-esbuild.md) — grammy HARUS di-externalize di build.mjs atau crash MODULE_NOT_FOUND saat startup
 - [Conversation-First Bot Architecture](bot-architecture.md) — bot pakai Claude JSON structured response untuk intent detection, bukan button menu
+- [Free tools stack](free-tools-stack.md) — semua editing pakai sharp+FFmpeg+imgly (gratis, lokal), bukan Replicate; imgly butuh sharp@0.32 di-rebuild
+- [NVIDIA NIM models](nvidia-nim-models.md) — model yang terverifikasi aktif di akun ini; beberapa model 404 meski ada di daftar
