@@ -1,202 +1,327 @@
 import { Bot, GrammyError, HttpError } from "grammy";
+import https from "node:https";
+import http from "node:http";
 import { logger } from "../lib/logger";
 import { handleStart } from "./handlers/start";
-import { handlePhotoReceived, handlePhotoEdit } from "./handlers/photo";
-import { handleVideoReceived, handleVideoEdit } from "./handlers/video";
-import { handleChatMessage, handleClearChat, handleChatMenu } from "./handlers/chat";
-import { handleCreditInfo } from "./handlers/credit_info";
-import { handleTrendMenu, handleTrendRequest } from "./handlers/trend";
-import { handleAdminPanel, handleAdminUsers, handleAdminStats, handleAddCredit, handleRemoveCredit, handleSetPremium, handleBan, handleBroadcast } from "./handlers/admin";
-import { mainMenuKeyboard, photoEditKeyboard, videoEditKeyboard, photoToVideoKeyboard } from "./keyboards";
+import { handleCreditInfo, handleAkunInfo } from "./handlers/credit_info";
+import { handlePremiumCommand, handlePaymentProof, handleAdminApprove } from "./handlers/premium";
+import { handleAdminUsers, handleAdminStats, handleAddCredit, handleRemoveCredit, handleBan, handleBroadcast, isAdmin } from "./handlers/admin";
+import { runAgent, clearHistory } from "./agent";
+import { getOrCreateUser, deductCredit } from "./credits";
+import { getUserState, setUserState, clearPending } from "./state";
+import { executeEditAction } from "./tools";
+import type { EditAction } from "./state";
 
-const PHOTO_ACTIONS = ["photo_enhance", "photo_upscale", "photo_remove_object", "photo_remove_bg", "photo_replace_bg", "photo_color", "photo_portrait", "photo_style", "photo_cartoon", "photo_anime"];
-const VIDEO_ACTIONS = ["video_upscale", "video_stabilize", "video_noise", "video_subtitle", "video_caption", "video_resize", "video_watermark", "p2v_cinematic", "p2v_zoom", "p2v_pan", "p2v_animate"];
-
-const chatModeUsers = new Set<number>();
+async function downloadFileAsBase64(fileUrl: string): Promise<{ data: string; mediaType: string }> {
+  return new Promise((resolve, reject) => {
+    const proto = fileUrl.startsWith("https") ? https : http;
+    proto.get(fileUrl, (res) => {
+      const chunks: Buffer[] = [];
+      res.on("data", (chunk) => chunks.push(chunk as Buffer));
+      res.on("end", () => {
+        const buf = Buffer.concat(chunks);
+        const mediaType = fileUrl.endsWith(".png") ? "image/png" : "image/jpeg";
+        resolve({ data: buf.toString("base64"), mediaType });
+      });
+      res.on("error", reject);
+    }).on("error", reject);
+  });
+}
 
 export function createBot(): Bot {
   const token = process.env.TELEGRAM_BOT_TOKEN;
   if (!token) throw new Error("TELEGRAM_BOT_TOKEN harus diset.");
-
   const bot = new Bot(token);
 
   bot.command("start", (ctx) => handleStart(ctx));
 
   bot.command("help", async (ctx) => {
     await ctx.reply(
-      `🤖 *Bantuan EditAI Bot*\n\n` +
-      `*Perintah Utama:*\n` +
-      `/start — Mulai bot & lihat menu\n` +
-      `/help — Tampilkan bantuan\n` +
+      `*EditAI — Asisten Editor AI*\n\n` +
+      `Cara pakai super simpel:\n\n` +
+      `📷 *Kirim foto* → saya analisis dan bantu edit\n` +
+      `🎬 *Kirim video* → saya analisis dan bantu edit\n` +
+      `💬 *Ketik pesan* → tanya apa saja tentang editing\n\n` +
+      `Kamu tidak perlu pilih menu. Cukup bicara natural!\n\n` +
+      `Contoh:\n` +
+      `_"Tolong buat foto ini lebih profesional"_\n` +
+      `_"Hapus background foto ini"_\n` +
+      `_"Tren edit video TikTok sekarang apa?"_\n` +
+      `_"Buat foto ini jadi anime"_\n\n` +
+      `*Perintah tersedia:*\n` +
+      `/start — Mulai bot\n` +
+      `/akun — Info profil kamu\n` +
       `/kredit — Cek sisa kredit\n` +
-      `/chat — Mulai AI chat\n` +
-      `/clearchat — Hapus riwayat AI chat\n` +
-      `/trend — Lihat tren konten\n\n` +
-      `*Cara Pakai:*\n` +
-      `📷 Kirim foto → pilih fitur editing\n` +
-      `🎬 Kirim video → pilih fitur editing\n` +
-      `💬 Ketik pesan → chat dengan AI\n\n` +
-      `*Admin (khusus admin):*\n` +
-      `/users — Daftar user\n` +
-      `/stats — Statistik bot\n` +
-      `/premium [id] — Toggle premium user\n` +
-      `/addcredit [id] [jumlah] — Tambah kredit\n` +
-      `/removecredit [id] [jumlah] — Kurangi kredit\n` +
-      `/broadcast [pesan] — Kirim pesan ke semua user\n` +
-      `/ban [id] — Blokir user\n` +
-      `/unban [id] — Buka blokir user`,
+      `/premium — Upgrade ke Premium\n` +
+      `/help — Bantuan ini\n\n` +
+      `_Punya pertanyaan? Ketik saja langsung!_`,
       { parse_mode: "Markdown" }
     );
   });
 
+  bot.command("akun", (ctx) => handleAkunInfo(ctx));
   bot.command("kredit", (ctx) => handleCreditInfo(ctx));
-  bot.command("chat", async (ctx) => {
-    const telegramId = ctx.from?.id;
-    if (telegramId) chatModeUsers.add(telegramId);
-    await handleChatMenu(ctx);
-  });
-  bot.command("clearchat", (ctx) => handleClearChat(ctx));
-  bot.command("trend", (ctx) => handleTrendMenu(ctx));
-
-  bot.command("admin", (ctx) => handleAdminPanel(ctx));
-  bot.command("users", (ctx) => handleAdminUsers(ctx));
-  bot.command("stats", (ctx) => handleAdminStats(ctx));
-
   bot.command("premium", async (ctx) => {
-    const args = ctx.match?.toString().trim().split(/\s+/) || [];
-    if (args.length > 0 && args[0]) {
-      await handleSetPremium(ctx, args);
+    const args = ctx.match?.toString().trim().split(/\s+/).filter(Boolean) ?? [];
+    if (args.length > 0 && isAdmin(ctx.from?.id ?? 0)) {
+      await handleAdminApprove(ctx, args);
     } else {
-      await ctx.reply(
-        `⭐ *Upgrade ke Premium*\n\n` +
-        `Dapatkan *50 kredit per hari* dengan paket Premium!\n\n` +
-        `Hubungi admin untuk info harga dan pembayaran.`,
-        { parse_mode: "Markdown" }
-      );
+      await handlePremiumCommand(ctx);
     }
   });
 
+  bot.command("users", (ctx) => handleAdminUsers(ctx));
+  bot.command("stats", (ctx) => handleAdminStats(ctx));
   bot.command("addcredit", async (ctx) => {
-    const args = ctx.match?.toString().trim().split(/\s+/) || [];
+    const args = ctx.match?.toString().trim().split(/\s+/).filter(Boolean) ?? [];
     await handleAddCredit(ctx, args);
   });
-
   bot.command("removecredit", async (ctx) => {
-    const args = ctx.match?.toString().trim().split(/\s+/) || [];
+    const args = ctx.match?.toString().trim().split(/\s+/).filter(Boolean) ?? [];
     await handleRemoveCredit(ctx, args);
   });
-
   bot.command("broadcast", async (ctx) => {
-    const message = ctx.match?.toString().trim() || "";
-    await handleBroadcast(ctx, message);
+    await handleBroadcast(ctx, ctx.match?.toString().trim() ?? "");
   });
-
   bot.command("ban", async (ctx) => {
-    const args = ctx.match?.toString().trim().split(/\s+/) || [];
+    const args = ctx.match?.toString().trim().split(/\s+/).filter(Boolean) ?? [];
     await handleBan(ctx, args, true);
   });
-
   bot.command("unban", async (ctx) => {
-    const args = ctx.match?.toString().trim().split(/\s+/) || [];
+    const args = ctx.match?.toString().trim().split(/\s+/).filter(Boolean) ?? [];
     await handleBan(ctx, args, false);
   });
-
-  bot.on("message:photo", (ctx) => handlePhotoReceived(ctx));
-  bot.on("message:video", (ctx) => handleVideoReceived(ctx));
-  bot.on("message:document", async (ctx) => {
-    await ctx.reply("📎 File diterima! Untuk editing, kirim foto atau video langsung (bukan sebagai file/dokumen).");
-  });
-
-  bot.hears("📷 Edit Foto", async (ctx) => {
-    await ctx.reply("📷 *Menu Edit Foto*\n\nPilih fitur yang ingin kamu gunakan:", {
-      parse_mode: "Markdown",
-      reply_markup: photoEditKeyboard(),
-    });
-  });
-
-  bot.hears("🎬 Edit Video", async (ctx) => {
-    await ctx.reply("🎬 *Menu Edit Video*\n\nPilih fitur yang ingin kamu gunakan:", {
-      parse_mode: "Markdown",
-      reply_markup: videoEditKeyboard(),
-    });
-  });
-
-  bot.hears("🖼️ Foto ke Video", async (ctx) => {
-    await ctx.reply("🖼️ *Foto ke Video*\n\nKirim foto terlebih dahulu, lalu pilih efek:", {
-      parse_mode: "Markdown",
-      reply_markup: photoToVideoKeyboard(),
-    });
-  });
-
-  bot.hears("🔥 Trend Assistant", (ctx) => handleTrendMenu(ctx));
-  bot.hears("💬 AI Chat", async (ctx) => {
+  bot.command("reset", async (ctx) => {
     const telegramId = ctx.from?.id;
-    if (telegramId) chatModeUsers.add(telegramId);
-    await handleChatMenu(ctx);
+    if (!telegramId) return;
+    await clearHistory(telegramId);
+    clearPending(telegramId);
+    await ctx.reply("🔄 Percakapan direset. Mulai lagi dari awal!");
   });
-  bot.hears("💳 Kredit Saya", (ctx) => handleCreditInfo(ctx));
 
-  bot.callbackQuery("back_main", async (ctx) => {
-    await ctx.answerCallbackQuery();
-    await ctx.reply("🏠 *Menu Utama*", {
-      parse_mode: "Markdown",
-      reply_markup: mainMenuKeyboard(),
+  async function processMessage(ctx: any, userText: string, imageBase64?: string, imageMediaType?: string): Promise<void> {
+    const telegramId = ctx.from?.id as number;
+    if (!telegramId) return;
+
+    const user = await getOrCreateUser(telegramId, ctx.from?.username, ctx.from?.first_name);
+
+    if (user.banned) {
+      await ctx.reply("❌ Akun kamu telah diblokir. Hubungi admin untuk informasi lebih lanjut.");
+      return;
+    }
+
+    const state = getUserState(telegramId);
+
+    if (state.awaitingPaymentProof && ctx.message?.photo) {
+      await handlePaymentProof(ctx);
+      return;
+    }
+
+    const confirmWords = ["ya", "oke", "ok", "yap", "yep", "lakukan", "jalankan", "yes", "go", "bagus", "mantap", "setuju", "boleh", "bisa", "silakan", "do it", "sure", "proceed", "gas", "lanjut", "siap", "iyaa", "iya"];
+    const cancelWords = ["tidak", "batal", "cancel", "no", "nope", "jangan", "stop", "gausah", "ga usah", "skip"];
+
+    const lowerText = userText.toLowerCase().trim();
+    const isConfirm = confirmWords.some(w => lowerText === w || lowerText.startsWith(w + " ") || lowerText.endsWith(" " + w));
+    const isCancel = cancelWords.some(w => lowerText === w || lowerText.startsWith(w + " "));
+
+    if (state.pending && isCancel) {
+      clearPending(telegramId);
+      await ctx.reply("Oke, dibatalkan! Ada yang lain yang bisa saya bantu?");
+      return;
+    }
+
+    if (state.pending && isConfirm) {
+      const pending = state.pending;
+      const creditResult = await deductCredit(telegramId);
+
+      if (!creditResult.success) {
+        clearPending(telegramId);
+        await ctx.reply(
+          `❌ Kredit habis!\n\nKredit kamu sudah habis hari ini. Reset otomatis dalam 24 jam.\n\nKetik /premium untuk upgrade ke 50 kredit/hari.`
+        );
+        return;
+      }
+
+      await ctx.reply(`⚙️ Oke, sedang diproses...\n\n_${pending.description}_\n\nBiasanya butuh 30-120 detik ya 🙏`, { parse_mode: "Markdown" });
+
+      try {
+        let fileUrl = pending.fileType === "photo" ? state.lastPhotoFileUrl : null;
+
+        if (!fileUrl) {
+          const fileId = pending.fileId;
+          const file = await ctx.api.getFile(fileId);
+          fileUrl = `https://api.telegram.org/file/bot${token}/${file.file_path}`;
+        }
+
+        if (!fileUrl) {
+          await ctx.reply("❌ File tidak ditemukan. Coba kirim ulang foto/video kamu.");
+          clearPending(telegramId);
+          return;
+        }
+
+        const result = await executeEditAction(
+          pending.action as EditAction,
+          fileUrl,
+          pending.fileType,
+          pending.extraParams
+        );
+
+        clearPending(telegramId);
+
+        if (!result.success) {
+          if (result.error?.includes("REPLICATE_API_TOKEN")) {
+            await ctx.reply(
+              `⚠️ *API editing belum dikonfigurasi*\n\n` +
+              `Untuk mengaktifkan fitur editing AI, admin perlu menambahkan REPLICATE_API_TOKEN.\n\n` +
+              `Hubungi admin atau daftar di replicate.com untuk mendapatkan token.`,
+              { parse_mode: "Markdown" }
+            );
+          } else {
+            await ctx.reply(`❌ Gagal memproses: ${result.error}\n\nCoba lagi atau kirim foto baru.`);
+          }
+          return;
+        }
+
+        if (result.outputUrl) {
+          if (result.outputUrl.startsWith("data:image")) {
+            const base64Data = result.outputUrl.split(",")[1];
+            const imgBuf = Buffer.from(base64Data, "base64");
+            await ctx.replyWithPhoto(new Blob([imgBuf], { type: "image/png" }) as any, {
+              caption: `✅ Selesai! Sisa kredit: *${creditResult.remaining}*\n\n_Ada yang mau diedit lagi? Kirim foto baru atau tanya saya!_`,
+              parse_mode: "Markdown",
+            });
+          } else if (pending.action === "video_subtitle" || pending.action === "video_caption") {
+            await ctx.replyWithDocument(result.outputUrl, {
+              caption: `✅ Subtitle berhasil dibuat! Sisa kredit: *${creditResult.remaining}*`,
+              parse_mode: "Markdown",
+            });
+          } else {
+            await ctx.replyWithPhoto(result.outputUrl, {
+              caption: `✅ Selesai! Sisa kredit: *${creditResult.remaining}*\n\n_Ada yang mau diedit lagi? Kirim foto baru atau tanya saya!_`,
+              parse_mode: "Markdown",
+            });
+          }
+        }
+      } catch (err) {
+        logger.error({ err }, "Edit execution error");
+        clearPending(telegramId);
+        await ctx.reply("❌ Terjadi kesalahan saat memproses. Coba lagi ya!");
+      }
+
+      return;
+    }
+
+    const creditResult = await deductCredit(telegramId);
+    if (!creditResult.success) {
+      await ctx.reply(
+        `❌ Kredit habis!\n\nSemua kredit kamu sudah terpakai hari ini. Reset otomatis dalam 24 jam.\n\nKetik /premium untuk upgrade ke 50 kredit/hari.`
+      );
+      return;
+    }
+
+    await ctx.sendChatAction("typing");
+
+    const agentResponse = await runAgent(telegramId, userText, imageBase64, imageMediaType);
+
+    if (agentResponse.action && agentResponse.needsConfirmation) {
+      const fileId = imageBase64
+        ? (ctx.message?.photo?.[ctx.message.photo.length - 1]?.file_id ?? state.lastPhotoFileId ?? "")
+        : state.lastPhotoFileId ?? "";
+      const fileType = imageBase64 ? "photo" : (state.lastVideoFileId ? "video" : "photo");
+
+      setUserState(telegramId, {
+        pending: {
+          action: agentResponse.action,
+          fileId: fileId,
+          fileType,
+          extraParams: agentResponse.extraParams,
+          description: agentResponse.message.split("\n")[0],
+        },
+      });
+    }
+
+    await ctx.reply(agentResponse.message, { parse_mode: "Markdown" });
+  }
+
+  bot.on("message:photo", async (ctx) => {
+    const telegramId = ctx.from?.id;
+    if (!telegramId) return;
+
+    const photo = ctx.message.photo[ctx.message.photo.length - 1];
+    const file = await ctx.api.getFile(photo.file_id);
+    const fileUrl = `https://api.telegram.org/file/bot${token}/${file.file_path}`;
+
+    setUserState(telegramId, {
+      lastPhotoFileId: photo.file_id,
+      lastPhotoFileUrl: fileUrl,
     });
+
+    let imageBase64: string | undefined;
+    let imageMediaType: string | undefined;
+
+    try {
+      const downloaded = await downloadFileAsBase64(fileUrl);
+      imageBase64 = downloaded.data;
+      imageMediaType = downloaded.mediaType;
+    } catch (err) {
+      logger.warn({ err }, "Gagal download foto untuk vision");
+    }
+
+    const caption = ctx.message.caption ?? "";
+    await processMessage(ctx, caption, imageBase64, imageMediaType);
   });
 
-  bot.callbackQuery("clear_chat", async (ctx) => {
-    await ctx.answerCallbackQuery("✅ Riwayat chat dihapus");
-    await handleClearChat(ctx);
+  bot.on("message:video", async (ctx) => {
+    const telegramId = ctx.from?.id;
+    if (!telegramId) return;
+
+    setUserState(telegramId, {
+      lastVideoFileId: ctx.message.video.file_id,
+    });
+
+    const caption = ctx.message.caption ?? "";
+    await processMessage(ctx, caption || "[Pengguna mengirim video]");
   });
 
-  bot.callbackQuery("admin_users", async (ctx) => {
-    await ctx.answerCallbackQuery();
-    await handleAdminUsers(ctx);
+  bot.on("message:voice", async (ctx) => {
+    await ctx.reply("🎤 Maaf, saya belum bisa memproses pesan suara. Silakan ketik pesanmu ya!");
   });
 
-  bot.callbackQuery("admin_stats", async (ctx) => {
-    await ctx.answerCallbackQuery();
-    await handleAdminStats(ctx);
+  bot.on("message:document", async (ctx) => {
+    const telegramId = ctx.from?.id;
+    if (!telegramId) return;
+
+    const state = getUserState(telegramId);
+    if (state.awaitingPaymentProof) {
+      await handlePaymentProof(ctx);
+      return;
+    }
+
+    await ctx.reply("📎 Untuk editing, kirim foto/video langsung (bukan sebagai file). Coba lagi ya!");
   });
-
-  bot.callbackQuery("admin_broadcast", async (ctx) => {
-    await ctx.answerCallbackQuery();
-    await ctx.reply("Gunakan perintah: /broadcast [pesan kamu]");
-  });
-
-  for (const action of PHOTO_ACTIONS) {
-    bot.callbackQuery(action, (ctx) => handlePhotoEdit(ctx, action));
-  }
-
-  for (const action of VIDEO_ACTIONS) {
-    bot.callbackQuery(action, (ctx) => handleVideoEdit(ctx, action));
-  }
-
-  bot.callbackQuery("trend_foto", (ctx) => handleTrendRequest(ctx, "foto"));
-  bot.callbackQuery("trend_video", (ctx) => handleTrendRequest(ctx, "video"));
-  bot.callbackQuery("trend_general", (ctx) => handleTrendRequest(ctx, "general"));
 
   bot.on("message:text", async (ctx) => {
     const text = ctx.message.text;
-    const telegramId = ctx.from?.id;
-
     if (!text || text.startsWith("/")) return;
+
+    const telegramId = ctx.from?.id;
     if (!telegramId) return;
 
-    const menuTexts = ["📷 Edit Foto", "🎬 Edit Video", "🖼️ Foto ke Video", "🔥 Trend Assistant", "💬 AI Chat", "💳 Kredit Saya"];
-    if (menuTexts.includes(text)) return;
+    const state = getUserState(telegramId);
 
-    await handleChatMessage(ctx, text);
+    if (state.awaitingPaymentProof && !text.startsWith("/")) {
+      await ctx.reply("Kirim foto/screenshot bukti pembayaran kamu ya, bukan teks. 📸");
+      return;
+    }
+
+    await processMessage(ctx, text);
   });
 
   bot.catch((err) => {
     const ctx = err.ctx;
     logger.error({ err: err.error, update: ctx.update }, "Bot error");
-    if (err.error instanceof GrammyError) {
-      logger.error({ description: err.error.description }, "GrammyError");
-    } else if (err.error instanceof HttpError) {
-      logger.error({ error: err.error }, "HttpError");
-    }
+    if (err.error instanceof GrammyError) logger.error({ desc: err.error.description }, "GrammyError");
+    else if (err.error instanceof HttpError) logger.error({ err: err.error }, "HttpError");
   });
 
   return bot;

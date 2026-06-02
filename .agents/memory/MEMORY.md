@@ -1,0 +1,2 @@
+- [Grammy esbuild external](grammy-esbuild.md) — grammy HARUS di-externalize di build.mjs atau crash MODULE_NOT_FOUND saat startup
+- [Conversation-First Bot Architecture](bot-architecture.md) — bot pakai Claude JSON structured response untuk intent detection, bukan button menu
