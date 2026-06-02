@@ -17,6 +17,7 @@ export type EditAction =
   | "text_to_video"
   // Video editing
   | "video_upscale"
+  | "video_enhance"
   | "video_stabilize"
   | "video_subtitle"
   | "video_caption"

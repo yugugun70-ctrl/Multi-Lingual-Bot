@@ -5,7 +5,7 @@ import { logger } from "../lib/logger";
 import { handleStart } from "./handlers/start";
 import { handleCreditInfo, handleAkunInfo } from "./handlers/credit_info";
 import { handlePremiumCommand, handlePaymentProof, handleAdminApprove } from "./handlers/premium";
-import { handleAdminUsers, handleAdminStats, handleAddQuota, handleRemoveQuota, handleBan, handleBroadcast, isAdmin } from "./handlers/admin";
+import { handleAdminUsers, handleAdminStats, handleAddQuota, handleRemoveQuota, handleBan, handleBroadcast, handleTestStatus, isAdmin } from "./handlers/admin";
 import { runAgent, clearHistory } from "./agent";
 import { getOrCreateUser, deductQuota, getQuotaTypeForAction, getQuotaLimitMessage } from "./credits";
 import { getUserState, setUserState, clearPending } from "./state";
@@ -96,6 +96,7 @@ export function createBot(): Bot {
     const args = ctx.match?.toString().trim().split(/\s+/).filter(Boolean) ?? [];
     await handleBan(ctx, args, false);
   });
+  bot.command("teststatus", (ctx) => handleTestStatus(ctx));
   bot.command("reset", async (ctx) => {
     const telegramId = ctx.from?.id;
     if (!telegramId) return;

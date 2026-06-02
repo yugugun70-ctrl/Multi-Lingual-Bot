@@ -12,6 +12,7 @@ import {
 } from "../lib/image-processor";
 import {
   videoUpscaleFFmpeg,
+  videoEnhanceFFmpeg,
   videoStabilizeFFmpeg,
   videoResizeFFmpeg,
   videoWatermarkFFmpeg,
@@ -158,6 +159,11 @@ export async function videoUpscale(videoUrl: string): Promise<ToolResult> {
   return { success: r.success, outputUrl: r.outputUrl, isVideo: r.isVideo, error: r.error, message: r.message };
 }
 
+export async function videoEnhance(videoUrl: string): Promise<ToolResult> {
+  const r = await videoEnhanceFFmpeg(videoUrl);
+  return { success: r.success, outputUrl: r.outputUrl, isVideo: r.isVideo, error: r.error, message: r.message };
+}
+
 export async function videoSubtitle(videoUrl: string, language = "id"): Promise<ToolResult> {
   const r = await generateSubtitleHF(videoUrl, language);
   return { success: r.success, outputUrl: r.outputUrl, error: r.error, message: r.message };
@@ -217,6 +223,7 @@ export async function executeEditAction(
 
     // Video editing (gratis: FFmpeg)
     case "video_upscale":         return videoUpscale(fileUrl);
+    case "video_enhance":         return videoEnhance(fileUrl);
     case "video_subtitle":        return videoSubtitle(fileUrl, extraParams?.language ?? "id");
     case "video_caption":         return videoSubtitle(fileUrl, extraParams?.language ?? "id");
     case "video_stabilize":       return videoStabilize(fileUrl);
