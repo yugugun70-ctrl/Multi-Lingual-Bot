@@ -4,9 +4,10 @@ import { eq, asc } from "drizzle-orm";
 import { logger } from "../lib/logger";
 import type { EditAction } from "./state";
 
-if (!process.env.ANTHROPIC_API_KEY) throw new Error("ANTHROPIC_API_KEY harus diset.");
-
-const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
+let anthropic: Anthropic | null = null;
+if (process.env.ANTHROPIC_API_KEY) {
+  anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
+}
 
 const SYSTEM_PROMPT = `Kamu adalah EditAI — asisten AI editor foto dan video profesional yang bekerja di Telegram.
 Kamu berkomunikasi secara natural seperti ChatGPT atau Meta AI. TIDAK ada menu tombol, tidak ada pilihan kaku.
@@ -108,6 +109,11 @@ export async function runAgent(
     isConfirmation: false,
     askClarification: false,
   };
+
+  if (!anthropic) {
+    parsed.message = "⚠️ AI belum dikonfigurasi. Admin perlu menambahkan ANTHROPIC_API_KEY.";
+    return parsed;
+  }
 
   try {
     const response = await anthropic.messages.create({

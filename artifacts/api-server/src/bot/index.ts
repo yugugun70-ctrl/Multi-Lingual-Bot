@@ -5,9 +5,9 @@ import { logger } from "../lib/logger";
 import { handleStart } from "./handlers/start";
 import { handleCreditInfo, handleAkunInfo } from "./handlers/credit_info";
 import { handlePremiumCommand, handlePaymentProof, handleAdminApprove } from "./handlers/premium";
-import { handleAdminUsers, handleAdminStats, handleAddCredit, handleRemoveCredit, handleBan, handleBroadcast, isAdmin } from "./handlers/admin";
+import { handleAdminUsers, handleAdminStats, handleAddQuota, handleRemoveQuota, handleBan, handleBroadcast, isAdmin } from "./handlers/admin";
 import { runAgent, clearHistory } from "./agent";
-import { getOrCreateUser, deductCredit } from "./credits";
+import { getOrCreateUser, deductQuota, getQuotaTypeForAction, getQuotaLimitMessage } from "./credits";
 import { getUserState, setUserState, clearPending } from "./state";
 import { executeEditAction } from "./tools";
 import type { EditAction } from "./state";
@@ -48,10 +48,15 @@ export function createBot(): Bot {
       `_"Hapus background foto ini"_\n` +
       `_"Tren edit video TikTok sekarang apa?"_\n` +
       `_"Buat foto ini jadi anime"_\n\n` +
+      `📊 *Kuota Harian (Gratis):*\n` +
+      `💬 Chat AI: 50 pesan\n` +
+      `📷 Edit Foto: 5 kali\n` +
+      `🎬 Edit Video: 2 kali\n` +
+      `🎞️ Photo to Video: 1 kali\n\n` +
       `*Perintah tersedia:*\n` +
       `/start — Mulai bot\n` +
       `/akun — Info profil kamu\n` +
-      `/kredit — Cek sisa kredit\n` +
+      `/kredit — Cek sisa kuota\n` +
       `/premium — Upgrade ke Premium\n` +
       `/help — Bantuan ini\n\n` +
       `_Punya pertanyaan? Ketik saja langsung!_`,
@@ -74,11 +79,11 @@ export function createBot(): Bot {
   bot.command("stats", (ctx) => handleAdminStats(ctx));
   bot.command("addcredit", async (ctx) => {
     const args = ctx.match?.toString().trim().split(/\s+/).filter(Boolean) ?? [];
-    await handleAddCredit(ctx, args);
+    await handleAddQuota(ctx, args);
   });
   bot.command("removecredit", async (ctx) => {
     const args = ctx.match?.toString().trim().split(/\s+/).filter(Boolean) ?? [];
-    await handleRemoveCredit(ctx, args);
+    await handleRemoveQuota(ctx, args);
   });
   bot.command("broadcast", async (ctx) => {
     await handleBroadcast(ctx, ctx.match?.toString().trim() ?? "");
@@ -132,17 +137,26 @@ export function createBot(): Bot {
 
     if (state.pending && isConfirm) {
       const pending = state.pending;
-      const creditResult = await deductCredit(telegramId);
+      const action = pending.action as EditAction;
+      const quotaType = getQuotaTypeForAction(action);
+      const quotaResult = await deductQuota(telegramId, quotaType);
 
-      if (!creditResult.success) {
+      if (!quotaResult.success) {
         clearPending(telegramId);
-        await ctx.reply(
-          `❌ Kredit habis!\n\nKredit kamu sudah habis hari ini. Reset otomatis dalam 24 jam.\n\nKetik /premium untuk upgrade ke 50 kredit/hari.`
-        );
+        await ctx.reply(getQuotaLimitMessage(quotaType), { parse_mode: "Markdown" });
         return;
       }
 
-      await ctx.reply(`⚙️ Oke, sedang diproses...\n\n_${pending.description}_\n\nBiasanya butuh 30-120 detik ya 🙏`, { parse_mode: "Markdown" });
+      const quotaLabel: Record<string, string> = {
+        photo_edit: "📷 Edit Foto",
+        video_edit: "🎬 Edit Video",
+        photo_to_video: "🎞️ Photo to Video",
+      };
+
+      await ctx.reply(
+        `⚙️ Oke, sedang diproses...\n\n_${pending.description}_\n\nBiasanya butuh 30-120 detik ya 🙏\n\n${quotaLabel[quotaType] ?? "Edit"}: *${quotaResult.remaining}* sisa hari ini`,
+        { parse_mode: "Markdown" }
+      );
 
       try {
         let fileUrl = pending.fileType === "photo" ? state.lastPhotoFileUrl : null;
@@ -160,7 +174,7 @@ export function createBot(): Bot {
         }
 
         const result = await executeEditAction(
-          pending.action as EditAction,
+          action,
           fileUrl,
           pending.fileType,
           pending.extraParams
@@ -183,21 +197,22 @@ export function createBot(): Bot {
         }
 
         if (result.outputUrl) {
+          const caption = `✅ Selesai! Sisa kuota: *${quotaResult.remaining}*\n\n_Ada yang mau diedit lagi? Kirim foto baru atau tanya saya!_`;
           if (result.outputUrl.startsWith("data:image")) {
             const base64Data = result.outputUrl.split(",")[1];
             const imgBuf = Buffer.from(base64Data, "base64");
             await ctx.replyWithPhoto(new Blob([imgBuf], { type: "image/png" }) as any, {
-              caption: `✅ Selesai! Sisa kredit: *${creditResult.remaining}*\n\n_Ada yang mau diedit lagi? Kirim foto baru atau tanya saya!_`,
+              caption,
               parse_mode: "Markdown",
             });
           } else if (pending.action === "video_subtitle" || pending.action === "video_caption") {
             await ctx.replyWithDocument(result.outputUrl, {
-              caption: `✅ Subtitle berhasil dibuat! Sisa kredit: *${creditResult.remaining}*`,
+              caption: `✅ Subtitle berhasil dibuat! Sisa kuota: *${quotaResult.remaining}*`,
               parse_mode: "Markdown",
             });
           } else {
             await ctx.replyWithPhoto(result.outputUrl, {
-              caption: `✅ Selesai! Sisa kredit: *${creditResult.remaining}*\n\n_Ada yang mau diedit lagi? Kirim foto baru atau tanya saya!_`,
+              caption,
               parse_mode: "Markdown",
             });
           }
@@ -211,11 +226,10 @@ export function createBot(): Bot {
       return;
     }
 
-    const creditResult = await deductCredit(telegramId);
-    if (!creditResult.success) {
-      await ctx.reply(
-        `❌ Kredit habis!\n\nSemua kredit kamu sudah terpakai hari ini. Reset otomatis dalam 24 jam.\n\nKetik /premium untuk upgrade ke 50 kredit/hari.`
-      );
+    // Deduct chat quota for AI conversation (NOT for edit actions)
+    const chatResult = await deductQuota(telegramId, "chat");
+    if (!chatResult.success) {
+      await ctx.reply(getQuotaLimitMessage("chat"), { parse_mode: "Markdown" });
       return;
     }
 

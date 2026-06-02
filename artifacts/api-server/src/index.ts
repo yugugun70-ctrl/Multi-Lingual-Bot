@@ -24,13 +24,15 @@ app.listen(port, (err) => {
   logger.info({ port }, "Server listening");
 });
 
-const bot = createBot();
-
-bot.start({
-  onStart: (botInfo) => {
-    logger.info({ username: botInfo.username }, "Bot Telegram berjalan");
-  },
-});
-
-process.once("SIGINT", () => bot.stop());
-process.once("SIGTERM", () => bot.stop());
+if (process.env.TELEGRAM_BOT_TOKEN) {
+  const bot = createBot();
+  bot.start({
+    onStart: (botInfo) => {
+      logger.info({ username: botInfo.username }, "Bot Telegram berjalan");
+    },
+  });
+  process.once("SIGINT", () => bot.stop());
+  process.once("SIGTERM", () => bot.stop());
+} else {
+  logger.warn("TELEGRAM_BOT_TOKEN tidak diset — bot tidak akan berjalan. Tambahkan di Secrets.");
+}

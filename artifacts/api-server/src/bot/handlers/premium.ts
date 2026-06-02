@@ -1,10 +1,10 @@
 import type { Context } from "grammy";
 import { db, usersTable } from "@workspace/db";
 import { eq } from "drizzle-orm";
-import { getOrCreateUser } from "../credits";
+import { getOrCreateUser, FREE_CHAT_QUOTA, FREE_PHOTO_EDIT_QUOTA, FREE_VIDEO_EDIT_QUOTA, FREE_PHOTO_TO_VIDEO_QUOTA, PREMIUM_CHAT_QUOTA, PREMIUM_PHOTO_EDIT_QUOTA, PREMIUM_VIDEO_EDIT_QUOTA, PREMIUM_PHOTO_TO_VIDEO_QUOTA } from "../credits";
 import { getUserState, setUserState } from "../state";
 
-const PREMIUM_PRICE = process.env.PREMIUM_PRICE ?? "50000";
+const PREMIUM_PRICE = process.env.PREMIUM_PRICE ?? "20000";
 const PREMIUM_DURATION = process.env.PREMIUM_DURATION_DAYS ?? "30";
 const PAYMENT_BANK = process.env.PAYMENT_INFO_BANK;
 const PAYMENT_EWALLET = process.env.PAYMENT_INFO_EWALLET;
@@ -18,7 +18,11 @@ export async function handlePremiumCommand(ctx: Context): Promise<void> {
   if (user.premium) {
     await ctx.reply(
       `⭐ *Kamu sudah Premium!*\n\n` +
-      `Kamu menikmati *50 kredit per hari* dan akses prioritas ke semua fitur editing.\n\n` +
+      `Kamu menikmati:\n` +
+      `• 💬 *${PREMIUM_CHAT_QUOTA} pesan AI per hari*\n` +
+      `• 📷 *${PREMIUM_PHOTO_EDIT_QUOTA} edit foto per hari*\n` +
+      `• 🎬 *${PREMIUM_VIDEO_EDIT_QUOTA} proses video per hari*\n` +
+      `• 🎞️ *${PREMIUM_PHOTO_TO_VIDEO_QUOTA} photo-to-video per hari*\n\n` +
       `Terima kasih sudah mendukung EditAI! 🙏`,
       { parse_mode: "Markdown" }
     );
@@ -34,12 +38,14 @@ export async function handlePremiumCommand(ctx: Context): Promise<void> {
   }
 
   await ctx.reply(
-    `⭐ *Upgrade ke Premium*\n\n` +
-    `Dengan Premium kamu mendapatkan:\n` +
-    `• ✅ *50 kredit per hari* (vs 3 kredit gratis)\n` +
-    `• ✅ Antrian prioritas\n` +
-    `• ✅ Akses semua fitur editing\n` +
-    `• ✅ Support langsung dari admin\n\n` +
+    `⭐ *Upgrade ke Premium — Rp ${parseInt(PREMIUM_PRICE).toLocaleString("id-ID")}/bulan*\n\n` +
+    `Dengan Premium kamu mendapatkan:\n\n` +
+    `💬 *AI Chat:* ${PREMIUM_CHAT_QUOTA} pesan/hari _(vs 50 gratis)_\n` +
+    `📷 *Edit Foto:* ${PREMIUM_PHOTO_EDIT_QUOTA} edit/hari _(vs 5 gratis)_\n` +
+    `🎬 *Edit Video:* ${PREMIUM_VIDEO_EDIT_QUOTA} proses/hari _(vs 2 gratis)_\n` +
+    `🎞️ *Photo to Video:* ${PREMIUM_PHOTO_TO_VIDEO_QUOTA} proses/hari _(vs 1 gratis)_\n` +
+    `⚡ *Prioritas antrian* — lebih cepat diproses\n` +
+    `🆕 *Akses fitur baru* lebih awal\n\n` +
     `💰 *Harga:* Rp ${parseInt(PREMIUM_PRICE).toLocaleString("id-ID")} / ${PREMIUM_DURATION} hari\n\n` +
     `${paymentInfo}` +
     `*Cara berlangganan:*\n` +
@@ -127,7 +133,13 @@ export async function handleAdminApprove(ctx: Context, args: string[]): Promise<
   const newStatus = !user.premium;
   await db
     .update(usersTable)
-    .set({ premium: newStatus, credits: newStatus ? 50 : 3 })
+    .set({
+      premium: newStatus,
+      chatQuota: newStatus ? PREMIUM_CHAT_QUOTA : FREE_CHAT_QUOTA,
+      photoEditQuota: newStatus ? PREMIUM_PHOTO_EDIT_QUOTA : FREE_PHOTO_EDIT_QUOTA,
+      videoEditQuota: newStatus ? PREMIUM_VIDEO_EDIT_QUOTA : FREE_VIDEO_EDIT_QUOTA,
+      photoToVideoQuota: newStatus ? PREMIUM_PHOTO_TO_VIDEO_QUOTA : FREE_PHOTO_TO_VIDEO_QUOTA,
+    })
     .where(eq(usersTable.telegramId, targetId));
 
   await ctx.reply(
@@ -140,10 +152,13 @@ export async function handleAdminApprove(ctx: Context, args: string[]): Promise<
       targetId,
       newStatus
         ? `🎉 *Selamat! Akun kamu sudah diupgrade ke Premium!*\n\n` +
-          `Kamu sekarang mendapatkan *50 kredit per hari*.\n` +
-          `Terima kasih telah mendukung EditAI! ⭐\n\n` +
-          `Kirim foto atau video untuk mulai editing!`
-        : `ℹ️ Status Premium kamu telah berakhir. Kamu kini menggunakan paket Gratis (3 kredit/hari).\n\nKetik /premium untuk berlangganan kembali.`,
+          `Kamu sekarang mendapatkan:\n` +
+          `• 💬 *${PREMIUM_CHAT_QUOTA} pesan AI per hari*\n` +
+          `• 📷 *${PREMIUM_PHOTO_EDIT_QUOTA} edit foto per hari*\n` +
+          `• 🎬 *${PREMIUM_VIDEO_EDIT_QUOTA} proses video per hari*\n` +
+          `• 🎞️ *${PREMIUM_PHOTO_TO_VIDEO_QUOTA} photo-to-video per hari*\n\n` +
+          `Terima kasih telah mendukung EditAI! ⭐`
+        : `ℹ️ Status Premium kamu telah berakhir. Kamu kini menggunakan paket Gratis.\n\nKetik /premium untuk berlangganan kembali.`,
       { parse_mode: "Markdown" }
     );
   } catch (e) {

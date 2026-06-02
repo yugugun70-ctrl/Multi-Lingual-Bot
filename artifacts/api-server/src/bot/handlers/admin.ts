@@ -1,6 +1,7 @@
 import type { Context } from "grammy";
 import { db, usersTable } from "@workspace/db";
 import { eq, count } from "drizzle-orm";
+import type { QuotaType } from "../credits";
 
 const ADMIN_IDS = process.env.ADMIN_TELEGRAM_IDS
   ? process.env.ADMIN_TELEGRAM_IDS.split(",").map((id) => parseInt(id.trim()))
@@ -24,7 +25,8 @@ export async function handleAdminUsers(ctx: Context): Promise<void> {
     const status = u.premium ? "⭐" : "🆓";
     const banned = u.banned ? " 🚫" : "";
     text += `${status}${banned} *${name}* (@${u.username || "-"})\n`;
-    text += `  ID: \`${u.telegramId}\` | Kredit: ${u.credits}\n\n`;
+    text += `  ID: \`${u.telegramId}\`\n`;
+    text += `  💬${u.chatQuota} 📷${u.photoEditQuota} 🎬${u.videoEditQuota} 🎞️${u.photoToVideoQuota}\n\n`;
   }
   await ctx.reply(text, { parse_mode: "Markdown" });
 }
@@ -47,37 +49,63 @@ export async function handleAdminStats(ctx: Context): Promise<void> {
   );
 }
 
-export async function handleAddCredit(ctx: Context, args: string[]): Promise<void> {
+export async function handleAddQuota(ctx: Context, args: string[]): Promise<void> {
   const telegramId = ctx.from?.id;
   if (!telegramId || !isAdmin(telegramId)) { await ctx.reply("❌ Tidak ada akses admin."); return; }
-  if (args.length < 2) { await ctx.reply("Format: /addcredit [id] [jumlah]"); return; }
+  if (args.length < 2) { await ctx.reply("Format: /addcredit [id] [jumlah] [chat|photo|video|p2v]\nDefault: chat"); return; }
 
   const targetId = parseInt(args[0]);
   const amount = parseInt(args[1]);
+  const typeArg = args[2] ?? "chat";
+
   if (isNaN(targetId) || isNaN(amount) || amount <= 0) { await ctx.reply("❌ Format tidak valid."); return; }
+
+  const typeMap: Record<string, keyof typeof usersTable.$inferSelect> = {
+    chat: "chatQuota",
+    photo: "photoEditQuota",
+    video: "videoEditQuota",
+    p2v: "photoToVideoQuota",
+  };
+
+  const field = typeMap[typeArg];
+  if (!field) { await ctx.reply("❌ Tipe tidak valid. Gunakan: chat, photo, video, p2v"); return; }
 
   const [user] = await db.select().from(usersTable).where(eq(usersTable.telegramId, targetId));
   if (!user) { await ctx.reply("❌ User tidak ditemukan."); return; }
 
-  await db.update(usersTable).set({ credits: user.credits + amount }).where(eq(usersTable.telegramId, targetId));
-  await ctx.reply(`✅ Ditambahkan *${amount}* kredit ke \`${targetId}\`. Total: *${user.credits + amount}*`, { parse_mode: "Markdown" });
+  const current = user[field] as number;
+  await db.update(usersTable).set({ [field]: current + amount } as any).where(eq(usersTable.telegramId, targetId));
+  await ctx.reply(`✅ Ditambahkan *${amount}* kuota ${typeArg} ke \`${targetId}\`. Total: *${current + amount}*`, { parse_mode: "Markdown" });
 }
 
-export async function handleRemoveCredit(ctx: Context, args: string[]): Promise<void> {
+export async function handleRemoveQuota(ctx: Context, args: string[]): Promise<void> {
   const telegramId = ctx.from?.id;
   if (!telegramId || !isAdmin(telegramId)) { await ctx.reply("❌ Tidak ada akses admin."); return; }
-  if (args.length < 2) { await ctx.reply("Format: /removecredit [id] [jumlah]"); return; }
+  if (args.length < 2) { await ctx.reply("Format: /removecredit [id] [jumlah] [chat|photo|video|p2v]\nDefault: chat"); return; }
 
   const targetId = parseInt(args[0]);
   const amount = parseInt(args[1]);
+  const typeArg = args[2] ?? "chat";
+
   if (isNaN(targetId) || isNaN(amount) || amount <= 0) { await ctx.reply("❌ Format tidak valid."); return; }
+
+  const typeMap: Record<string, keyof typeof usersTable.$inferSelect> = {
+    chat: "chatQuota",
+    photo: "photoEditQuota",
+    video: "videoEditQuota",
+    p2v: "photoToVideoQuota",
+  };
+
+  const field = typeMap[typeArg];
+  if (!field) { await ctx.reply("❌ Tipe tidak valid. Gunakan: chat, photo, video, p2v"); return; }
 
   const [user] = await db.select().from(usersTable).where(eq(usersTable.telegramId, targetId));
   if (!user) { await ctx.reply("❌ User tidak ditemukan."); return; }
 
-  const newCredits = Math.max(0, user.credits - amount);
-  await db.update(usersTable).set({ credits: newCredits }).where(eq(usersTable.telegramId, targetId));
-  await ctx.reply(`✅ Dikurangi *${amount}* kredit dari \`${targetId}\`. Total: *${newCredits}*`, { parse_mode: "Markdown" });
+  const current = user[field] as number;
+  const newVal = Math.max(0, current - amount);
+  await db.update(usersTable).set({ [field]: newVal } as any).where(eq(usersTable.telegramId, targetId));
+  await ctx.reply(`✅ Dikurangi *${amount}* kuota ${typeArg} dari \`${targetId}\`. Total: *${newVal}*`, { parse_mode: "Markdown" });
 }
 
 export async function handleBan(ctx: Context, args: string[], ban: boolean): Promise<void> {
