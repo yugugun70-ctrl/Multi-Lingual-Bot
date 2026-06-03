@@ -2,6 +2,7 @@
 - [Conversation-First Bot Architecture](bot-architecture.md) — bot pakai Claude JSON structured response untuk intent detection, bukan button menu
 - [Free tools stack](free-tools-stack.md) — semua editing pakai sharp+FFmpeg+imgly (gratis, lokal), bukan Replicate; imgly butuh sharp@0.32 di-rebuild
 - [NVIDIA NIM models](nvidia-nim-models.md) — model yang terverifikasi aktif di akun ini; beberapa model 404 meski ada di daftar
+- [Whisper lokal via xenova](whisper-xenova.md) — NVIDIA tidak punya audio endpoint; pakai @xenova/transformers (Xenova/whisper-tiny, lokal, gratis); HARUS di-external di build.mjs
 - [Telegram parse_mode safety](telegram-parse-mode.md) — gunakan HTML bukan MarkdownV2 untuk template; kirim AI response tanpa parse_mode sama sekali
 - [FFmpeg zoompan bug](ffmpeg-zoompan.md) — zoompan formula HARUS `min(zoom+0.0008,1.3)` bukan `if(lte(zoom,1.0),...)` atau zoom tidak bergerak; -f lavfi sebelum -vf
 - [Agent action normalization](agent-action-norm.md) — model sering return alias (remove_bg, cinematic, hdr) bukan exact EditAction string; normalization alias map wajib ada

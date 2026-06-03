@@ -235,14 +235,15 @@ export function createBot(token: string): Bot {
       "Kirim video, lalu pilih layanan:\n\n" +
       "✨ <b>Jernihkan Video</b> — denoise + sharpen + warna hidup\n" +
       "📐 <b>Kualitas Video</b> — HD, Full HD, atau 4K\n" +
-      "🎞️ <b>Efek Video</b> — Sinematik, Hitam & Putih, Vintage, Drama, Vivid\n" +
+      "🎞️ <b>Efek Video</b> — Sinematik, Hitam &amp; Putih, Vintage, Drama, Vivid\n" +
       "📏 <b>Rasio Video</b> — 16:9, 9:16 Reels, 1:1, 4:3, 21:9\n" +
-      "💬 <b>Subtitle</b> — teks di atas/tengah/bawah\n" +
+      "💬 <b>Subtitle</b> — teks manual atau 🎙️ otomatis dari suara\n" +
       "✂️ <b>Potong Video</b> — tentukan waktu mulai &amp; akhir\n" +
       "🎬 <b>Foto → Video</b> — ubah foto jadi video\n" +
       "🎁 <b>Check-in Harian</b> — kredit gratis tiap hari!\n\n" +
       `💳 Semua fitur = <b>${VIDEO_EDIT_COST} kredit</b>\n` +
-      "Kredit dipotong HANYA jika berhasil.\n\n" +
+      "Kredit dipotong HANYA jika berhasil.\n" +
+      "<i>Durasi video maks 60 detik</i>\n\n" +
       "/kredit — cek saldo\n/topup — top up\n/checkin — check-in harian\n/reset — reset percakapan",
       { parse_mode: "HTML", reply_markup: mainInlineKeyboard() }
     );
@@ -303,7 +304,7 @@ export function createBot(token: string): Bot {
       } else {
         setUserState(telegramId, { pendingAction: "video_enhance" });
         await ctx.reply(
-          "✨ <b>Jernihkan Video</b>\n\nKirim videomu — saya proses otomatis:\ndenoise + sharpen + warna lebih hidup\n\n<i>(Durasi maks 30 detik)</i>",
+          "✨ <b>Jernihkan Video</b>\n\nKirim videomu — saya proses otomatis:\ndenoise + sharpen + warna lebih hidup\n\n<i>(Durasi maks 60 detik)</i>",
           { parse_mode: "HTML" }
         );
       }
@@ -608,8 +609,19 @@ export function createBot(token: string): Bot {
     const user = await getOrCreateUser(telegramId, ctx.from?.username, ctx.from?.first_name);
     if (user.banned) { await ctx.reply("Akun kamu diblokir."); return; }
 
+    // Cek ukuran file sebelum download (Telegram limit ~20MB untuk bot)
+    const vid = ctx.message.video;
+    if (vid.file_size && vid.file_size > 50 * 1024 * 1024) {
+      await ctx.reply(
+        "❌ File video terlalu besar (maks ~50MB).\n\nKompres dulu atau kirim video yang lebih pendek.",
+        { reply_markup: mainInlineKeyboard() }
+      );
+      return;
+    }
+
+    await ctx.replyWithChatAction("typing");
+
     const state   = getUserState(telegramId);
-    const vid     = ctx.message.video;
     const file    = await ctx.api.getFile(vid.file_id);
     const fileUrl = `https://api.telegram.org/file/bot${token}/${file.file_path}`;
 

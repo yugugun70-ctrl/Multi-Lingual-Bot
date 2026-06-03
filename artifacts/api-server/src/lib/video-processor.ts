@@ -17,7 +17,7 @@ export interface VideoResult {
   isVideo?: boolean;
 }
 
-const MAX_DURATION_SEC = 30;
+const MAX_DURATION_SEC = 60;
 
 function ffmpeg(): string { return process.env.FFMPEG_PATH ?? "ffmpeg"; }
 function ffprobe(): string { return (process.env.FFMPEG_PATH ?? "ffmpeg").replace("ffmpeg", "ffprobe"); }
