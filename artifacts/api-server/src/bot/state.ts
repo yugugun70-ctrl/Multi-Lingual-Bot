@@ -8,14 +8,11 @@ export type EditAction =
   | "color_correction"
   | "remove_object"
   | "style_transfer"
-  // Photo-to-video (Kling AI)
   | "photo_to_video_cinematic"
   | "photo_to_video_zoom"
   | "photo_to_video_pan"
   | "image_to_video"
-  // Text-to-video (Kling AI)
   | "text_to_video"
-  // Video editing
   | "video_upscale"
   | "video_enhance"
   | "video_stabilize"
@@ -24,6 +21,9 @@ export type EditAction =
   | "video_resize"
   | "video_watermark"
   | "video_noise_reduction";
+
+// 1=Edit Foto, 2=Teks→Foto, 3=Teks→Video, 4=Foto→Video, 5=Jernihkan Video
+export type MenuMode = 1 | 2 | 3 | 4 | 5 | null;
 
 export interface PendingEdit {
   action: EditAction;
@@ -35,9 +35,11 @@ export interface PendingEdit {
 
 export interface UserState {
   pending: PendingEdit | null;
+  menuMode: MenuMode;
   lastPhotoFileId: string | null;
   lastPhotoFileUrl: string | null;
   lastVideoFileId: string | null;
+  lastVideoFileUrl: string | null;
   awaitingPaymentProof: boolean;
 }
 
@@ -47,9 +49,11 @@ export function getUserState(telegramId: number): UserState {
   if (!userStates.has(telegramId)) {
     userStates.set(telegramId, {
       pending: null,
+      menuMode: null,
       lastPhotoFileId: null,
       lastPhotoFileUrl: null,
       lastVideoFileId: null,
+      lastVideoFileUrl: null,
       awaitingPaymentProof: false,
     });
   }

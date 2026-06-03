@@ -4,7 +4,6 @@ import { eq, asc } from "drizzle-orm";
 import { logger } from "../lib/logger";
 import type { EditAction } from "./state";
 
-// NVIDIA NIM API — AI utama untuk chat, coding, vision, OCR, analisis dokumen
 let nvidiaClient: OpenAI | null = null;
 if (process.env.NVIDIA_API_KEY) {
   nvidiaClient = new OpenAI({
@@ -13,48 +12,42 @@ if (process.env.NVIDIA_API_KEY) {
   });
 }
 
-// Model NVIDIA NIM — terverifikasi aktif di akun ini
-const NVIDIA_VISION_MODEL = "meta/llama-3.2-11b-vision-instruct";       // Vision: analisis gambar/OCR/dokumen
-const NVIDIA_TEXT_MODEL = "nvidia/llama-3.3-nemotron-super-49b-v1";     // Chat + coding + reasoning (Nemotron)
-const NVIDIA_FALLBACK_MODEL = "nvidia/llama-3.1-nemotron-nano-8b-v1";   // Fallback ringan (Nemotron Nano)
-const NVIDIA_FALLBACK2_MODEL = "meta/llama-3.3-70b-instruct";           // Fallback kedua (Meta Llama)
+const NVIDIA_VISION_MODEL   = "meta/llama-3.2-11b-vision-instruct";
+const NVIDIA_TEXT_MODEL     = "nvidia/llama-3.3-nemotron-super-49b-v1";
+const NVIDIA_FALLBACK_MODEL = "nvidia/llama-3.1-nemotron-nano-8b-v1";
+const NVIDIA_FALLBACK2_MODEL = "meta/llama-3.3-70b-instruct";
 
-const SYSTEM_PROMPT = `Kamu adalah EditAI — asisten AI editor foto dan video profesional di Telegram.
-Kamu seperti ChatGPT atau Meta AI: bisa ngobrol natural, tidak ada menu tombol, tidak ada pilihan kaku.
+const SYSTEM_PROMPT = `Kamu adalah EditAI — asisten AI khusus edit foto dan video di Telegram.
+Kamu HANYA bisa membantu hal-hal yang berkaitan dengan foto dan video editing.
 Kamu didukung oleh NVIDIA AI (Llama Vision & Nemotron).
 
 KEPRIBADIAN:
-- Ramah, santai, profesional — seperti teman yang ahli editing
-- Aktif memberi rekomendasi dan inspirasi
-- Selalu balas dalam BAHASA YANG SAMA dengan pengguna (default Bahasa Indonesia)
-- Jika pengguna tidak mengirim foto/video, tetap jawab pertanyaan mereka dengan normal
-- Jika ada gambar, analisis dengan detail (OCR, identifikasi objek, warna, komposisi)
+- Ramah, singkat, profesional
+- Balas dalam BAHASA YANG SAMA dengan pengguna (default Bahasa Indonesia)
+- TIDAK pernah membahas topik di luar foto/video editing
 
-FITUR EDITING YANG KAMU BISA:
+TOPIK YANG KAMU BOLEH BAHAS:
+- Teknik edit foto & video
+- Cara pakai tools editing (Adobe, Lightroom, Capcut, dll)
+- Saran warna, komposisi, efek
+- Analisis foto yang dikirim user
+- Fitur editing bot ini
+
+JIKA TOPIK DI LUAR FOTO/VIDEO EDITING:
+- Balas dengan off_topic: true di JSON
+- Berikan pesan sopan bahwa kamu hanya untuk foto & video editing
+
+AKSI EDITING YANG TERSEDIA:
 FOTO: remove_background, upscale_photo, enhance_photo, anime_effect, cartoon_effect, portrait_enhance, color_correction, remove_object, style_transfer
-VIDEO: video_upscale, video_stabilize, video_subtitle, video_caption, video_resize, video_watermark, video_noise_reduction
-FOTO KE VIDEO (Kling AI): photo_to_video_cinematic, photo_to_video_zoom, photo_to_video_pan, image_to_video
-TEXT KE VIDEO (Kling AI): text_to_video
+VIDEO: video_upscale, video_enhance, video_stabilize, video_subtitle, video_resize, video_watermark, video_noise_reduction
+FOTO→VIDEO: photo_to_video_cinematic, photo_to_video_zoom, photo_to_video_pan, image_to_video
+TEKS→VIDEO: text_to_video
 
-ROUTING OTOMATIS (internal):
-- Permintaan chat, analisis, coding, OCR, dokumen → NVIDIA AI
-- Permintaan membuat video dari foto → Kling AI (image_to_video / photo_to_video_*)
-- Permintaan membuat video dari teks → Kling AI (text_to_video)
-
-ALUR KERJA NATURAL:
-1. Pengguna kirim foto/video TANPA instruksi → tanya ingin diapakan
-2. Pengguna jelaskan keinginan → rekomendasikan aksi terbaik, jelaskan singkat, tanya konfirmasi
-3. Pengguna konfirmasi (ya/oke/lakukan/gas dll) → set action
-4. Pengguna hanya chat/tanya → jawab natural, TIDAK perlu action
-5. Instruksi langsung dan jelas ("langsung hapus background") → langsung set action tanpa tanya lagi
-
-CONTOH CHAT NATURAL:
-- "Foto saya cocok diedit apa?" → Jawab dengan saran, action: null
-- "Tren edit video TikTok?" → Jawab saja, action: null  
-- "Hapus background foto ini" → Rekomendasikan remove_background, needs_confirmation: true
-- "Buat video dari foto ini" → Rekomendasikan image_to_video (Kling AI), needs_confirmation: true
-- "Buat video orang berjalan di pantai" → Rekomendasikan text_to_video (Kling AI), needs_confirmation: true
-- "Oke lakukan" → is_confirmation: true
+ALUR KERJA:
+1. User kirim foto + deskripsi edit → pilih action terbaik, rekomendasikan, minta konfirmasi
+2. User minta langsung ("hapus background sekarang") → set action langsung tanpa konfirmasi
+3. User tanya tentang editing → jawab dengan natural, action: null
+4. Topik lain → off_topic: true
 
 FORMAT RESPONS (WAJIB JSON VALID, tidak ada teks di luar JSON):
 {
@@ -62,20 +55,26 @@ FORMAT RESPONS (WAJIB JSON VALID, tidak ada teks di luar JSON):
   "action": null atau nama action,
   "needs_confirmation": true/false,
   "is_confirmation": true/false,
-  "ask_clarification": true/false,
+  "off_topic": true/false,
   "extra_params": {}
 }
 
-Untuk text_to_video, sertakan prompt video di extra_params: {"prompt": "deskripsi video"}
-
-KATA KONFIRMASI: ya, oke, ok, yap, yep, lakukan, jalankan, yes, go, bagus, mantap, setuju, boleh, bisa, silakan, do it, sure, proceed, gas, lanjut, siap, iya`;
+Contoh response off-topic:
+{
+  "message": "Maaf, saya hanya bisa membantu soal edit foto dan video. Untuk topik lain, saya tidak bisa membantu ya! 😊",
+  "action": null,
+  "needs_confirmation": false,
+  "is_confirmation": false,
+  "off_topic": true,
+  "extra_params": {}
+}`;
 
 export interface AgentResponse {
   message: string;
   action: EditAction | null;
   needsConfirmation: boolean;
   isConfirmation: boolean;
-  askClarification: boolean;
+  offTopic: boolean;
   extraParams?: Record<string, string>;
 }
 
@@ -84,39 +83,31 @@ async function callNvidiaWithFallback(
   hasImage: boolean
 ): Promise<string> {
   if (!nvidiaClient) {
-    throw new Error("NVIDIA_API_KEY tidak dikonfigurasi. Admin perlu menambahkan NVIDIA_API_KEY di Secrets.");
+    throw new Error("NVIDIA_API_KEY tidak dikonfigurasi.");
   }
 
-  // Pilih model: vision model jika ada gambar, text model untuk teks saja
   const modelsToTry = hasImage
     ? [NVIDIA_VISION_MODEL, NVIDIA_FALLBACK2_MODEL, NVIDIA_FALLBACK_MODEL]
     : [NVIDIA_TEXT_MODEL, NVIDIA_FALLBACK_MODEL, NVIDIA_VISION_MODEL, NVIDIA_FALLBACK2_MODEL];
 
   for (const model of modelsToTry) {
     try {
-      logger.info({ model, hasImage }, "Memanggil NVIDIA NIM API");
+      logger.info({ model, hasImage }, "Memanggil NVIDIA NIM");
       const response = await nvidiaClient.chat.completions.create({
         model,
-        max_tokens: 1024,
+        max_tokens: 512,
         messages,
-        temperature: 0.7,
+        temperature: 0.6,
       });
       const text = response.choices[0]?.message?.content ?? "";
-      if (text) {
-        logger.info({ model }, "NVIDIA NIM berhasil merespons");
-        return text;
-      }
+      if (text) return text;
     } catch (err: any) {
-      const is429 = err?.status === 429 || err?.code === 429;
-      const is503 = err?.status === 503;
-      if (is429 || is503) {
-        logger.warn({ model, status: err?.status }, "Model rate-limited atau tidak tersedia, coba model berikutnya...");
-        continue;
-      }
+      const skip = err?.status === 429 || err?.status === 503 || err?.status === 404;
+      if (skip) { logger.warn({ model, status: err?.status }, "Skip model"); continue; }
       throw err;
     }
   }
-  throw new Error("Semua model NVIDIA sedang penuh. Coba lagi sebentar.");
+  throw new Error("Semua model NVIDIA sedang sibuk. Coba lagi sebentar.");
 }
 
 export async function runAgent(
@@ -130,7 +121,7 @@ export async function runAgent(
     .from(chatHistoryTable)
     .where(eq(chatHistoryTable.telegramId, telegramId))
     .orderBy(asc(chatHistoryTable.createdAt))
-    .limit(20);
+    .limit(12);
 
   const messages: OpenAI.Chat.ChatCompletionMessageParam[] = [
     { role: "system", content: SYSTEM_PROMPT },
@@ -140,29 +131,20 @@ export async function runAgent(
     })),
   ];
 
-  // Buat user message — jika ada gambar, pakai format vision
   let userHistoryContent: string;
   if (imageBase64) {
     const dataUrl = `data:${imageMediaType ?? "image/jpeg"};base64,${imageBase64}`;
-    const textPart = userText ? `dengan keterangan: "${userText}"` : "tanpa keterangan";
-    
-    // Format multimodal untuk NVIDIA vision model
+    const textPart = userText ? `dengan permintaan: "${userText}"` : "tanpa keterangan";
     messages.push({
       role: "user",
       content: [
-        {
-          type: "text",
-          text: `[Pengguna mengirim foto ${textPart}]. Analisis gambar ini dan bantu pengguna.`,
-        },
-        {
-          type: "image_url",
-          image_url: { url: dataUrl },
-        },
+        { type: "text", text: `[User mengirim foto ${textPart}]. Analisis dan rekomendasikan edit terbaik.` },
+        { type: "image_url", image_url: { url: dataUrl } },
       ],
     });
-    userHistoryContent = `[Pengguna mengirim foto/gambar]${userText ? ` dengan pesan: "${userText}"` : ""}`;
+    userHistoryContent = `[Foto dikirim]${userText ? ` — "${userText}"` : ""}`;
   } else {
-    const content = userText || "[Pengguna mengirim media tanpa pesan]";
+    const content = userText || "[Media tanpa teks]";
     messages.push({ role: "user", content });
     userHistoryContent = content;
   }
@@ -172,34 +154,27 @@ export async function runAgent(
     action: null,
     needsConfirmation: false,
     isConfirmation: false,
-    askClarification: false,
+    offTopic: false,
   };
 
   if (!nvidiaClient) {
-    parsed.message = "⚠️ NVIDIA AI belum dikonfigurasi. Admin perlu menambahkan NVIDIA_API_KEY di Secrets.";
+    parsed.message = "⚠️ NVIDIA AI belum dikonfigurasi. Hubungi admin.";
     return parsed;
   }
 
   try {
     const rawText = await callNvidiaWithFallback(messages, !!imageBase64);
-
     const jsonMatch = rawText.match(/\{[\s\S]*\}/);
+
     if (jsonMatch) {
       try {
-        const raw = JSON.parse(jsonMatch[0]) as {
-          message?: string;
-          action?: string | null;
-          needs_confirmation?: boolean;
-          is_confirmation?: boolean;
-          ask_clarification?: boolean;
-          extra_params?: Record<string, string>;
-        };
+        const raw = JSON.parse(jsonMatch[0]) as any;
         parsed = {
           message: raw.message ?? rawText,
           action: (raw.action as EditAction) ?? null,
           needsConfirmation: raw.needs_confirmation ?? false,
           isConfirmation: raw.is_confirmation ?? false,
-          askClarification: raw.ask_clarification ?? false,
+          offTopic: raw.off_topic ?? false,
           extraParams: raw.extra_params,
         };
       } catch {
@@ -215,10 +190,10 @@ export async function runAgent(
     ]);
   } catch (err: any) {
     logger.error({ err }, "NVIDIA Agent error");
-    if (err?.message?.includes("rate-limited") || err?.message?.includes("penuh")) {
-      parsed.message = "⏳ NVIDIA AI sedang sibuk. Coba lagi dalam 1-2 menit ya!";
-    } else if (err?.message?.includes("NVIDIA_API_KEY")) {
-      parsed.message = `⚠️ ${err.message}`;
+    if (err?.message?.includes("sibuk") || err?.message?.includes("penuh")) {
+      parsed.message = "⏳ AI sedang sibuk. Coba lagi dalam 1-2 menit ya!";
+    } else {
+      parsed.message = `⚠️ ${err.message?.slice(0, 100) ?? "Terjadi kesalahan"}`;
     }
   }
 

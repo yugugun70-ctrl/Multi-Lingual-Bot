@@ -1,4 +1,5 @@
 import type { Context } from "grammy";
+import { InputFile } from "grammy";
 import { db, usersTable } from "@workspace/db";
 import { eq, count } from "drizzle-orm";
 import type { QuotaType } from "../credits";
@@ -142,7 +143,7 @@ export async function handleTestStatus(ctx: Context): Promise<void> {
     results.push(`✅ Sharp (upscale) — ${(upBuf.length / 1024).toFixed(0)} KB`);
 
     // Kirim gambar hasil test langsung ke admin
-    await ctx.replyWithPhoto({ source: upBuf }, { caption: "🔬 Test: Sharp upscale 3x" });
+    await ctx.replyWithPhoto(new InputFile(upBuf, "test_upscale.jpg"), { caption: "🔬 Test: Sharp upscale 3x" });
   } catch (e: any) {
     results.push(`❌ Sharp — ${e.message?.slice(0, 60)}`);
   }
@@ -177,7 +178,7 @@ export async function handleTestStatus(ctx: Context): Promise<void> {
     const buf = await readFile(outPath);
     await unlink(outPath).catch(() => {});
     results.push(`✅ FFmpeg photo-to-video (5s) — ${(buf.length / 1024).toFixed(0)} KB`);
-    await ctx.replyWithVideo({ source: buf }, { caption: "🎬 Test: FFmpeg Ken Burns (preview 5s dari 30s)" });
+    await ctx.replyWithVideo(new InputFile(buf, "test_ptv.mp4"), { caption: "🎬 Test: FFmpeg Ken Burns (preview 5s dari 30s)", supports_streaming: true });
   } catch (e: any) {
     results.push(`❌ FFmpeg photo-to-video — ${e.message?.slice(0, 80)}`);
   }

@@ -1,6 +1,22 @@
 import type { Context } from "grammy";
-import { InlineKeyboard } from "grammy";
 import { getOrCreateUser } from "../credits";
+
+export function getMenuText(): string {
+  return (
+    `Pilih layanan yang kamu inginkan:\n\n` +
+    `1️⃣  *Edit Foto*\n` +
+    `      _(hapus background, upscale, anime, dll)_\n\n` +
+    `2️⃣  *Teks → Foto*\n` +
+    `      _(buat gambar dari deskripsi teks)_\n\n` +
+    `3️⃣  *Teks → Video*\n` +
+    `      _(buat video dari deskripsi teks)_\n\n` +
+    `4️⃣  *Foto → Video*\n` +
+    `      _(ubah foto jadi video cinematic)_\n\n` +
+    `5️⃣  *Jernihkan Kualitas Video*\n` +
+    `      _(denoise, sharpen, warna lebih hidup)_\n\n` +
+    `Ketik angka *1–5* untuk mulai.`
+  );
+}
 
 export async function handleStart(ctx: Context): Promise<void> {
   const telegramId = ctx.from?.id;
@@ -14,29 +30,14 @@ export async function handleStart(ctx: Context): Promise<void> {
 
   const name = user.firstName || user.username || "kamu";
 
-  // Remove any existing reply keyboard
-  await ctx.reply("...", {
-    reply_markup: { remove_keyboard: true },
-  }).catch(() => {});
-
   await ctx.reply(
-    `Hei ${name}! 👋\n\n` +
-    `Saya *EditAI* — asisten AI untuk edit foto dan video.\n\n` +
-    `Seperti ChatGPT, kamu bisa ngobrol natural sama saya:\n\n` +
-    `📷 *Kirim foto* → saya analisis dan bantu edit\n` +
-    `🎬 *Kirim video* → subtitle, jernihkan, resize, dll\n` +
-    `💬 *Ketik apa saja* → tanya, konsultasi, ide konten\n\n` +
-    `*Contoh yang bisa kamu minta:*\n` +
-    `_"Hapus background foto ini"_\n` +
-    `_"Buatkan subtitle video ini"_\n` +
-    `_"Jernihkan foto yang blur"_\n` +
-    `_"Buat foto ini jadi video cinematic"_\n` +
-    `_"Foto saya cocok diedit seperti apa?"_\n\n` +
-    `${user.premium
-      ? `⭐ Status: *Premium*`
-      : `🆓 Kuota hari ini: 💬${user.chatQuota} chat · 📷${user.photoEditQuota} foto · 🎬${user.videoEditQuota} video`
-    }\n\n` +
-    `_Mulai dengan kirim foto atau video, atau ketik pertanyaanmu!_`,
+    `Hei *${name}*! 👋 Selamat datang di *EditAI*\n\n` +
+    `Saya asisten AI untuk edit foto dan video.\n` +
+    `Saya hanya memahami pertanyaan seputar foto & video editing.\n\n` +
+    (user.premium
+      ? `⭐ Status: *Premium*\n\n`
+      : `🆓 Kuota hari ini: 💬${user.chatQuota} · 📷${user.photoEditQuota} foto · 🎬${user.videoEditQuota} video\n\n`) +
+    getMenuText(),
     { parse_mode: "Markdown" }
   );
 }
