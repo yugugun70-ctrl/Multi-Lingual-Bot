@@ -11,11 +11,9 @@ if (!process.env.DATABASE_URL) {
 export const pool = new Pool({ connectionString: process.env.DATABASE_URL });
 export const db = drizzle(pool, { schema });
 
-// Migrasi otomatis saat startup — buat tabel jika belum ada, lalu apply perubahan
 export async function runMigrations(): Promise<void> {
   const client = await pool.connect();
   try {
-    // Buat tabel users jika belum ada (migrasi awal)
     await client.query(`
       CREATE TABLE IF NOT EXISTS users (
         id SERIAL PRIMARY KEY,
@@ -35,7 +33,6 @@ export async function runMigrations(): Promise<void> {
       );
     `);
 
-    // Buat tabel chat_history jika belum ada
     await client.query(`
       CREATE TABLE IF NOT EXISTS chat_history (
         id SERIAL PRIMARY KEY,
@@ -46,12 +43,10 @@ export async function runMigrations(): Promise<void> {
       );
     `);
 
-    // Tambah kolom credits jika belum ada (untuk DB lama)
-    await client.query(`
-      ALTER TABLE users ADD COLUMN IF NOT EXISTS credits INTEGER NOT NULL DEFAULT 20;
-    `);
+    await client.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS credits INTEGER NOT NULL DEFAULT 20;`);
+    await client.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS last_checkin DATE;`);
+    await client.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS checkin_streak INTEGER NOT NULL DEFAULT 0;`);
 
-    // User lama yang credits-nya masih 0 → berikan 20 gratis
     await client.query(`UPDATE users SET credits = 20 WHERE credits = 0;`);
 
     console.log("[DB] Migrasi selesai ✓");

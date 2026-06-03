@@ -8,22 +8,19 @@ import type { EditAction } from "./state";
 function getNvidiaClient(): OpenAI | null {
   const key = getConfigValue("NVIDIA_API_KEY");
   if (!key) return null;
-  return new OpenAI({
-    apiKey: key,
-    baseURL: "https://integrate.api.nvidia.com/v1",
-  });
+  return new OpenAI({ apiKey: key, baseURL: "https://integrate.api.nvidia.com/v1" });
 }
 
-const NVIDIA_PRIMARY_MODEL   = "nvidia/llama-3.1-nemotron-nano-8b-v1";
-const NVIDIA_VISION_MODEL    = "meta/llama-3.2-11b-vision-instruct";
-const NVIDIA_FALLBACK_MODEL  = "meta/llama-3.3-70b-instruct";
+const NVIDIA_PRIMARY_MODEL  = "nvidia/llama-3.1-nemotron-nano-8b-v1";
+const NVIDIA_VISION_MODEL   = "meta/llama-3.2-11b-vision-instruct";
+const NVIDIA_FALLBACK_MODEL = "meta/llama-3.3-70b-instruct";
 
 const SYSTEM_PROMPT = `Kamu adalah EditAI, bot Telegram untuk edit video.
 HANYA balas dalam format JSON berikut — tidak boleh ada teks lain:
 {"message":"balasanmu","action":null,"off_topic":false}
 
 Daftar action yang valid:
-video_enhance, video_stabilize, video_noise_reduction, video_watermark,
+video_enhance, video_stabilize, video_noise_reduction, video_watermark, video_trim,
 video_quality_hd, video_quality_fhd, video_quality_4k,
 video_subtitle,
 video_effect_cinematic, video_effect_bw, video_effect_vintage, video_effect_drama, video_effect_vivid,
@@ -32,14 +29,12 @@ photo_to_video_cinematic, photo_to_video_zoom, photo_to_video_pan
 
 ATURAN:
 - Jika user minta edit video → set action sesuai
-- video_quality_hd = HD 720p, video_quality_fhd = Full HD 1080p, video_quality_4k = 4K 2160p
-- video_effect_bw = hitam putih/grayscale
-- video_effect_cinematic = warna sinematik/movie look
+- video_quality_hd = HD 720p, video_quality_fhd = Full HD 1080p, video_quality_4k = 4K
+- video_effect_bw = hitam putih, video_effect_cinematic = warna sinematik
 - video_ratio_9_16 = portrait/reels/tiktok, video_ratio_16_9 = landscape/youtube
-- Jika user tanya tentang editing → jelaskan singkat, action null
+- video_trim = potong video
 - Jika topik lain → off_topic true, tolak sopan
-- Selalu balas bahasa Indonesia
-- message harus singkat, ramah, profesional`;
+- Selalu balas bahasa Indonesia, singkat & ramah`;
 
 export interface AgentResponse {
   message: string;
@@ -51,54 +46,33 @@ export interface AgentResponse {
 }
 
 const ACTION_ALIASES: Record<string, EditAction> = {
-  "enhance":              "video_enhance",
-  "enhance_video":        "video_enhance",
-  "jernih":               "video_enhance",
-  "jernihkan":            "video_enhance",
-  "stabilize":            "video_stabilize",
-  "stabilisasi":          "video_stabilize",
-  "denoise":              "video_noise_reduction",
-  "noise_reduction":      "video_noise_reduction",
-  "watermark":            "video_watermark",
-  "hd":                   "video_quality_hd",
-  "720p":                 "video_quality_hd",
-  "fhd":                  "video_quality_fhd",
-  "full_hd":              "video_quality_fhd",
-  "1080p":                "video_quality_fhd",
-  "4k":                   "video_quality_4k",
-  "2160p":                "video_quality_4k",
-  "subtitle":             "video_subtitle",
-  "caption":              "video_subtitle",
-  "teks":                 "video_subtitle",
-  "bw":                   "video_effect_bw",
-  "hitam_putih":          "video_effect_bw",
-  "grayscale":            "video_effect_bw",
-  "cinematic":            "video_effect_cinematic",
-  "movie_look":           "video_effect_cinematic",
-  "vintage":              "video_effect_vintage",
-  "retro":                "video_effect_vintage",
-  "drama":                "video_effect_drama",
-  "dramatic":             "video_effect_drama",
-  "vivid":                "video_effect_vivid",
-  "colorful":             "video_effect_vivid",
-  "landscape":            "video_ratio_16_9",
-  "portrait":             "video_ratio_9_16",
-  "reels":                "video_ratio_9_16",
-  "tiktok":               "video_ratio_9_16",
-  "square":               "video_ratio_1_1",
-  "persegi":              "video_ratio_1_1",
-  "classic":              "video_ratio_4_3",
-  "klasik":               "video_ratio_4_3",
-  "widescreen":           "video_ratio_21_9",
-  "photo_to_video":       "photo_to_video_cinematic",
-  "image_to_video":       "photo_to_video_cinematic",
-  "foto_ke_video":        "photo_to_video_cinematic",
-  "zoom_video":           "photo_to_video_zoom",
-  "pan_video":            "photo_to_video_pan",
+  "enhance": "video_enhance", "enhance_video": "video_enhance",
+  "jernih": "video_enhance", "jernihkan": "video_enhance",
+  "stabilize": "video_stabilize", "stabilisasi": "video_stabilize",
+  "denoise": "video_noise_reduction", "noise_reduction": "video_noise_reduction",
+  "watermark": "video_watermark",
+  "trim": "video_trim", "potong": "video_trim", "cut": "video_trim",
+  "hd": "video_quality_hd", "720p": "video_quality_hd",
+  "fhd": "video_quality_fhd", "full_hd": "video_quality_fhd", "1080p": "video_quality_fhd",
+  "4k": "video_quality_4k", "2160p": "video_quality_4k",
+  "subtitle": "video_subtitle", "caption": "video_subtitle", "teks": "video_subtitle",
+  "bw": "video_effect_bw", "hitam_putih": "video_effect_bw", "grayscale": "video_effect_bw",
+  "cinematic": "video_effect_cinematic", "movie_look": "video_effect_cinematic",
+  "vintage": "video_effect_vintage", "retro": "video_effect_vintage",
+  "drama": "video_effect_drama", "dramatic": "video_effect_drama",
+  "vivid": "video_effect_vivid", "colorful": "video_effect_vivid",
+  "landscape": "video_ratio_16_9", "portrait": "video_ratio_9_16",
+  "reels": "video_ratio_9_16", "tiktok": "video_ratio_9_16",
+  "square": "video_ratio_1_1", "persegi": "video_ratio_1_1",
+  "classic": "video_ratio_4_3", "klasik": "video_ratio_4_3",
+  "widescreen": "video_ratio_21_9",
+  "photo_to_video": "photo_to_video_cinematic", "image_to_video": "photo_to_video_cinematic",
+  "foto_ke_video": "photo_to_video_cinematic",
+  "zoom_video": "photo_to_video_zoom", "pan_video": "photo_to_video_pan",
 };
 
 const VALID_ACTIONS = new Set<string>([
-  "video_enhance", "video_stabilize", "video_noise_reduction", "video_watermark",
+  "video_enhance", "video_stabilize", "video_noise_reduction", "video_watermark", "video_trim",
   "video_quality_hd", "video_quality_fhd", "video_quality_4k",
   "video_subtitle",
   "video_effect_cinematic", "video_effect_bw", "video_effect_vintage", "video_effect_drama", "video_effect_vivid",
@@ -117,32 +91,22 @@ function normalizeAction(raw: string | null | undefined): EditAction | null {
 function parseAgentResponse(rawText: string): AgentResponse {
   const fallback: AgentResponse = {
     message: rawText.trim().slice(0, 300) || "Maaf, coba lagi ya!",
-    action: null,
-    needsConfirmation: false,
-    isConfirmation: false,
-    offTopic: false,
+    action: null, needsConfirmation: false, isConfirmation: false, offTopic: false,
   };
-
   const jsonMatch = rawText.match(/\{[\s\S]*?\}/);
   if (!jsonMatch) return fallback;
-
   try {
     const raw = JSON.parse(jsonMatch[0]) as any;
     const msg = String(raw.message ?? "").trim();
-    if (!msg || msg.length > 1000 || msg.includes('"action"') || msg.includes('"message"')) {
-      return fallback;
-    }
+    if (!msg || msg.length > 1000 || msg.includes('"action"')) return fallback;
     return {
       message: msg,
       action: normalizeAction(raw.action),
-      needsConfirmation: false,
-      isConfirmation: false,
+      needsConfirmation: false, isConfirmation: false,
       offTopic: !!raw.off_topic,
       extraParams: raw.extra_params ?? undefined,
     };
-  } catch {
-    return fallback;
-  }
+  } catch { return fallback; }
 }
 
 async function callNvidiaModel(
@@ -150,24 +114,18 @@ async function callNvidiaModel(
   messages: OpenAI.Chat.ChatCompletionMessageParam[],
   hasImage: boolean
 ): Promise<string> {
-  const orderedModels = hasImage
+  const ordered = hasImage
     ? [NVIDIA_VISION_MODEL, NVIDIA_PRIMARY_MODEL, NVIDIA_FALLBACK_MODEL]
     : [NVIDIA_PRIMARY_MODEL, NVIDIA_FALLBACK_MODEL, NVIDIA_VISION_MODEL];
 
-  for (const model of orderedModels) {
+  for (const model of ordered) {
     try {
-      logger.info({ model, hasImage }, "Memanggil NVIDIA");
-      const response = await client.chat.completions.create({
-        model,
-        max_tokens: 300,
-        temperature: 0.3,
-        messages,
-      });
-      const text = response.choices[0]?.message?.content?.trim() ?? "";
-      if (text) return text;
+      logger.info({ model }, "Memanggil NVIDIA");
+      const r = await client.chat.completions.create({ model, max_tokens: 300, temperature: 0.3, messages });
+      const t = r.choices[0]?.message?.content?.trim() ?? "";
+      if (t) return t;
     } catch (err: any) {
-      const skip = err?.status === 429 || err?.status === 503 || err?.status === 404;
-      if (skip) { logger.warn({ model, status: err?.status }, "Skip model"); continue; }
+      if ([429, 503, 404].includes(err?.status)) { logger.warn({ model, status: err?.status }, "Skip"); continue; }
       throw err;
     }
   }
@@ -180,69 +138,44 @@ export async function runAgent(
   imageBase64?: string,
   imageMediaType?: string
 ): Promise<AgentResponse> {
-  const nvidiaClient = getNvidiaClient();
-
-  if (!nvidiaClient) {
-    return {
-      message: "NVIDIA API Key belum dikonfigurasi. Hubungi admin.",
-      action: null, needsConfirmation: false, isConfirmation: false, offTopic: false,
-    };
+  const client = getNvidiaClient();
+  if (!client) {
+    return { message: "NVIDIA API Key belum dikonfigurasi. Hubungi admin.", action: null, needsConfirmation: false, isConfirmation: false, offTopic: false };
   }
 
-  const history = await db
-    .select()
-    .from(chatHistoryTable)
+  const history = await db.select().from(chatHistoryTable)
     .where(eq(chatHistoryTable.telegramId, telegramId))
-    .orderBy(asc(chatHistoryTable.createdAt))
-    .limit(8);
+    .orderBy(asc(chatHistoryTable.createdAt)).limit(8);
 
   const messages: OpenAI.Chat.ChatCompletionMessageParam[] = [
     { role: "system", content: SYSTEM_PROMPT },
-    ...history.map((h) => ({
-      role: h.role as "user" | "assistant",
-      content: h.content,
-    })),
+    ...history.map((h) => ({ role: h.role as "user" | "assistant", content: h.content })),
   ];
 
   let userHistoryContent: string;
   if (imageBase64) {
     const dataUrl = `data:${imageMediaType ?? "image/jpeg"};base64,${imageBase64}`;
-    const request = userText ? `"${userText}"` : "pilihkan action terbaik";
-    messages.push({
-      role: "user",
-      content: [
-        { type: "text", text: `User kirim foto, minta: ${request}. Balas JSON saja.` },
-        { type: "image_url", image_url: { url: dataUrl } },
-      ],
-    });
+    const req = userText ? `"${userText}"` : "pilihkan action terbaik";
+    messages.push({ role: "user", content: [{ type: "text", text: `User kirim foto, minta: ${req}. Balas JSON saja.` }, { type: "image_url", image_url: { url: dataUrl } }] });
     userHistoryContent = `[Foto] ${userText || ""}`;
   } else {
-    const content = `${userText || "[Media]"} → balas JSON saja!`;
-    messages.push({ role: "user", content });
+    messages.push({ role: "user", content: `${userText || "[Media]"} → balas JSON saja!` });
     userHistoryContent = userText || "[Media]";
   }
 
-  let parsed: AgentResponse = {
-    message: "Maaf, ada gangguan. Coba lagi ya!",
-    action: null, needsConfirmation: false, isConfirmation: false, offTopic: false,
-  };
-
+  let parsed: AgentResponse = { message: "Maaf, ada gangguan. Coba lagi ya!", action: null, needsConfirmation: false, isConfirmation: false, offTopic: false };
   try {
-    const rawText = await callNvidiaModel(nvidiaClient, messages, !!imageBase64);
-    logger.debug({ rawText: rawText.slice(0, 200) }, "NVIDIA raw response");
+    const rawText = await callNvidiaModel(client, messages, !!imageBase64);
+    logger.debug({ rawText: rawText.slice(0, 200) }, "NVIDIA raw");
     parsed = parseAgentResponse(rawText);
-
     await db.insert(chatHistoryTable).values([
       { telegramId, role: "user", content: userHistoryContent },
       { telegramId, role: "assistant", content: parsed.message },
     ]);
   } catch (err: any) {
     logger.error({ err }, "NVIDIA Agent error");
-    parsed.message = err?.message?.includes("sibuk")
-      ? "AI sedang sibuk, coba lagi dalam 1-2 menit ya!"
-      : "Terjadi kesalahan sementara. Coba lagi ya!";
+    parsed.message = err?.message?.includes("sibuk") ? "AI sedang sibuk, coba lagi!" : "Terjadi kesalahan sementara.";
   }
-
   return parsed;
 }
 

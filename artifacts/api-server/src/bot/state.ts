@@ -3,6 +3,7 @@ export type EditAction =
   | "video_stabilize"
   | "video_noise_reduction"
   | "video_watermark"
+  | "video_trim"
   | "video_quality_hd"
   | "video_quality_fhd"
   | "video_quality_4k"
@@ -34,6 +35,7 @@ export interface UserState {
   awaitingPaymentProof: boolean;
   awaitingSubtitleText: boolean;
   subtitlePosition: "top" | "middle" | "bottom";
+  awaitingTrimTime: boolean;
 }
 
 const userStates = new Map<number, UserState>();
@@ -51,6 +53,7 @@ export function getUserState(telegramId: number): UserState {
       awaitingPaymentProof: false,
       awaitingSubtitleText: false,
       subtitlePosition: "bottom",
+      awaitingTrimTime: false,
     });
   }
   return userStates.get(telegramId)!;
@@ -66,5 +69,6 @@ export function clearPending(telegramId: number): void {
     pendingAction: null,
     awaitingSubtitleText: false,
     subtitlePosition: "bottom",
+    awaitingTrimTime: false,
   });
 }

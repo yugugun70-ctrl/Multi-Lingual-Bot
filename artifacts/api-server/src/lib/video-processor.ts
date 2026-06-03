@@ -19,13 +19,8 @@ export interface VideoResult {
 
 const MAX_DURATION_SEC = 30;
 
-function ffmpeg(): string {
-  return process.env.FFMPEG_PATH ?? "ffmpeg";
-}
-
-function ffprobe(): string {
-  return (process.env.FFMPEG_PATH ?? "ffmpeg").replace("ffmpeg", "ffprobe");
-}
+function ffmpeg(): string { return process.env.FFMPEG_PATH ?? "ffmpeg"; }
+function ffprobe(): string { return (process.env.FFMPEG_PATH ?? "ffmpeg").replace("ffmpeg", "ffprobe"); }
 
 async function runFF(args: string[], timeoutMs = 120000): Promise<void> {
   const cmd = `${ffmpeg()} ${args.join(" ")}`;
@@ -65,7 +60,7 @@ export async function photoToVideoFFmpeg(
   let inputBuf = buf;
   try {
     const sharp = (await import("sharp")).default;
-    const meta = await sharp(buf).metadata();
+    const meta  = await sharp(buf).metadata();
     const w = Math.max(meta.width ?? 1280, 1920);
     const h = Math.max(meta.height ?? 720, 1080);
     inputBuf = await sharp(buf)
@@ -102,32 +97,20 @@ export async function photoToVideoFFmpeg(
     };
 
     await runFF([
-      "-y",
-      "-loop", "1",
-      "-i", `"${inputPath}"`,
+      "-y", "-loop", "1", "-i", `"${inputPath}"`,
       "-f", "lavfi", "-i", "anullsrc=channel_layout=stereo:sample_rate=44100",
       "-vf", `"${zoomFilters[type]}"`,
-      "-c:v", "libx264",
-      "-crf", "22",
-      "-preset", "medium",
-      "-profile:v", "high",
-      "-pix_fmt", "yuv420p",
+      "-c:v", "libx264", "-crf", "22", "-preset", "medium",
+      "-profile:v", "high", "-pix_fmt", "yuv420p",
       "-movflags", "+faststart",
       "-c:a", "aac", "-b:a", "128k",
-      "-t", String(durSec),
-      "-shortest",
+      "-t", String(durSec), "-shortest",
       `"${outputPath}"`,
     ], 180000);
 
     const base64    = await toBase64(outputPath, "video/mp4");
     const typeLabel = { cinematic: "Sinematik", zoom: "Zoom In", pan: "Pan" }[type];
-    return {
-      success: true,
-      outputUrl: base64,
-      mimeType: "video/mp4",
-      isVideo: true,
-      message: `Video ${typeLabel} ${durSec}s (720p, 25fps) berhasil dibuat!`,
-    };
+    return { success: true, outputUrl: base64, mimeType: "video/mp4", isVideo: true, message: `Video ${typeLabel} ${durSec}s berhasil dibuat!` };
   } catch (err: any) {
     logger.error({ err }, "Photo-to-video gagal");
     return { success: false, error: `Photo to video gagal: ${err.message?.slice(0, 100)}` };
@@ -136,7 +119,7 @@ export async function photoToVideoFFmpeg(
   }
 }
 
-// ─── Video Enhance (Jernihkan) ────────────────────────────────────────────────
+// ─── Video Enhance (Jernihkan) — PRESERVE aspect ratio ────────────────────────
 
 export async function videoEnhanceFFmpeg(videoUrl: string): Promise<VideoResult> {
   const inputPath  = await bufferToTempFile(await fetchBuffer(videoUrl), "mp4");
@@ -144,16 +127,16 @@ export async function videoEnhanceFFmpeg(videoUrl: string): Promise<VideoResult>
 
   try {
     const dur    = await getDuration(inputPath);
+    // scale ke dimensi genap tanpa ubah rasio (penting untuk codec)
     const filter = [
       "hqdn3d=2:1.5:3:2.5",
       "unsharp=5:5:1.5:3:3:0.5",
       "eq=contrast=1.08:saturation=1.2:brightness=0.02",
-      "scale=iw:ih:flags=lanczos",
+      "scale=trunc(iw/2)*2:trunc(ih/2)*2:flags=lanczos",
     ].join(",");
 
     await runFF([
-      "-y", "-i", `"${inputPath}"`,
-      "-t", String(dur),
+      "-y", "-i", `"${inputPath}"`, "-t", String(dur),
       "-vf", `"${filter}"`,
       "-c:v", "libx264", "-crf", "18", "-preset", "medium",
       "-profile:v", "high", "-movflags", "+faststart",
@@ -170,34 +153,34 @@ export async function videoEnhanceFFmpeg(videoUrl: string): Promise<VideoResult>
   }
 }
 
-// ─── Video Quality / Upscale ke resolusi target ───────────────────────────────
+// ─── Video Quality — scale ke resolusi target, PRESERVE aspect ratio ──────────
 
 export async function videoQualityFFmpeg(
   videoUrl: string,
   preset: "hd" | "fhd" | "4k"
 ): Promise<VideoResult> {
+  // Hanya targetkan tinggi (height), lebar menyesuaikan otomatis → rasio terjaga
   const configs = {
-    hd:  { w: 1280, h: 720,  label: "HD (720p)",        crf: 20 },
-    fhd: { w: 1920, h: 1080, label: "Full HD (1080p)",  crf: 18 },
-    "4k":  { w: 3840, h: 2160, label: "4K (2160p)",     crf: 20 },
+    hd:  { targetH: 720,  label: "HD (720p)",       crf: 20 },
+    fhd: { targetH: 1080, label: "Full HD (1080p)", crf: 18 },
+    "4k":  { targetH: 2160, label: "4K (2160p)",    crf: 20 },
   };
-  const { w, h, label, crf } = configs[preset];
+  const { targetH, label, crf } = configs[preset];
 
   const inputPath  = await bufferToTempFile(await fetchBuffer(videoUrl), "mp4");
   const outputPath = path.join(os.tmpdir(), `editai_qual_${Date.now()}.mp4`);
 
   try {
     const dur = await getDuration(inputPath);
+    // -2 = hitung lebar otomatis agar tetap proporsional dan bilangan genap
     const filter = [
-      `scale=${w}:${h}:force_original_aspect_ratio=decrease:flags=lanczos`,
-      `pad=${w}:${h}:(ow-iw)/2:(oh-ih)/2`,
+      `scale=-2:${targetH}:flags=lanczos`,
       "unsharp=5:5:1.0",
-      "eq=contrast=1.05:saturation=1.1",
+      "eq=contrast=1.05:saturation=1.08",
     ].join(",");
 
     await runFF([
-      "-y", "-i", `"${inputPath}"`,
-      "-t", String(dur),
+      "-y", "-i", `"${inputPath}"`, "-t", String(dur),
       "-vf", `"${filter}"`,
       "-c:v", "libx264", `-crf`, String(crf), "-preset", "medium",
       "-profile:v", "high", "-movflags", "+faststart",
@@ -214,7 +197,7 @@ export async function videoQualityFFmpeg(
   }
 }
 
-// ─── Video Subtitle Overlay (bakar teks ke video) ────────────────────────────
+// ─── Video Subtitle Overlay ────────────────────────────────────────────────────
 
 export async function videoSubtitleOverlayFFmpeg(
   videoUrl: string,
@@ -226,9 +209,7 @@ export async function videoSubtitleOverlayFFmpeg(
     middle: "(h-text_h)/2",
     bottom: "h-text_h-30",
   };
-  const posLabel: Record<string, string> = {
-    top: "atas", middle: "tengah", bottom: "bawah",
-  };
+  const posLabel: Record<string, string> = { top: "atas", middle: "tengah", bottom: "bawah" };
 
   const inputPath  = await bufferToTempFile(await fetchBuffer(videoUrl), "mp4");
   const outputPath = path.join(os.tmpdir(), `editai_sub_${Date.now()}.mp4`);
@@ -236,17 +217,13 @@ export async function videoSubtitleOverlayFFmpeg(
   try {
     const dur      = await getDuration(inputPath);
     const safeText = text
-      .replace(/\\/g, "\\\\")
-      .replace(/'/g, "\\'")
-      .replace(/:/g, "\\:")
-      .replace(/\[/g, "\\[")
-      .replace(/\]/g, "\\]");
+      .replace(/\\/g, "\\\\").replace(/'/g, "\\'")
+      .replace(/:/g, "\\:").replace(/\[/g, "\\[").replace(/\]/g, "\\]");
 
     const filter = `drawtext=text='${safeText}':fontsize=32:fontcolor=white:x=(w-text_w)/2:y=${yPos[position]}:box=1:boxcolor=black@0.55:boxborderw=8:shadowcolor=black@0.5:shadowx=2:shadowy=2`;
 
     await runFF([
-      "-y", "-i", `"${inputPath}"`,
-      "-t", String(dur),
+      "-y", "-i", `"${inputPath}"`, "-t", String(dur),
       "-vf", `"${filter}"`,
       "-c:v", "libx264", "-crf", "18", "-preset", "medium",
       "-profile:v", "high", "-movflags", "+faststart",
@@ -255,7 +232,7 @@ export async function videoSubtitleOverlayFFmpeg(
     ], 180000);
 
     const base64 = await toBase64(outputPath, "video/mp4");
-    return { success: true, outputUrl: base64, mimeType: "video/mp4", isVideo: true, message: `Subtitle di-${posLabel[position]} berhasil ditambahkan (${dur.toFixed(0)}s)!` };
+    return { success: true, outputUrl: base64, mimeType: "video/mp4", isVideo: true, message: `Subtitle di ${posLabel[position]} berhasil ditambahkan (${dur.toFixed(0)}s)!` };
   } catch (err: any) {
     return { success: false, error: `Subtitle gagal: ${err.message?.slice(0, 80)}` };
   } finally {
@@ -263,27 +240,32 @@ export async function videoSubtitleOverlayFFmpeg(
   }
 }
 
-// ─── Video Effects ────────────────────────────────────────────────────────────
+// ─── Video Effects — filter sederhana & kompatibel ────────────────────────────
 
 const VIDEO_EFFECT_FILTERS: Record<string, { filter: string; label: string }> = {
   cinematic: {
-    filter: "curves=r='0/0 128/100 255/220':g='0/0 128/110 255/210':b='0/20 128/115 255/200',eq=saturation=0.85:contrast=1.1:brightness=-0.02,vignette=PI/4",
+    // Saturation turun, contrast naik, vignette — movie look
+    filter: "eq=contrast=1.12:saturation=0.82:gamma=1.06,vignette=angle=PI/4",
     label: "Sinematik",
   },
   bw: {
+    // Hilangkan saturasi → hitam putih
     filter: "hue=s=0,eq=contrast=1.15:brightness=0.02",
     label: "Hitam & Putih",
   },
   vintage: {
-    filter: "curves=r='0/30 128/140 255/225':g='0/20 128/130 255/215':b='0/10 128/120 255/200',hue=s=0.65,vignette=PI/3,noise=alls=8:allf=t",
+    // Tone hangat, saturasi rendah, vignette
+    filter: "hue=h=12:s=0.68,eq=contrast=1.06:brightness=-0.02,vignette=angle=PI/3",
     label: "Vintage/Retro",
   },
   drama: {
-    filter: "eq=contrast=1.45:saturation=1.25:brightness=-0.05,unsharp=5:5:1.2,vignette=PI/5",
+    // Kontras tinggi, saturasi kuat, vignette
+    filter: "eq=contrast=1.4:saturation=1.28:brightness=-0.05,unsharp=5:5:1.0:5:5:0.0,vignette=angle=PI/5",
     label: "Drama",
   },
   vivid: {
-    filter: "eq=saturation=1.85:contrast=1.1:brightness=0.02,unsharp=3:3:0.5",
+    // Saturasi dan kecerahan tinggi
+    filter: "eq=saturation=1.8:contrast=1.1:brightness=0.02",
     label: "Vivid/Cerah",
   },
 };
@@ -302,8 +284,7 @@ export async function videoEffectFFmpeg(
     const dur = await getDuration(inputPath);
 
     await runFF([
-      "-y", "-i", `"${inputPath}"`,
-      "-t", String(dur),
+      "-y", "-i", `"${inputPath}"`, "-t", String(dur),
       "-vf", `"${cfg.filter}"`,
       "-c:v", "libx264", "-crf", "18", "-preset", "medium",
       "-profile:v", "high", "-movflags", "+faststart",
@@ -320,7 +301,7 @@ export async function videoEffectFFmpeg(
   }
 }
 
-// ─── Video Ratio (Aspect Ratio) ───────────────────────────────────────────────
+// ─── Video Ratio ──────────────────────────────────────────────────────────────
 
 const RATIO_CONFIGS: Record<string, { w: number; h: number; label: string }> = {
   "16_9":  { w: 1920, h: 1080, label: "16:9 (Landscape/YouTube)" },
@@ -348,8 +329,7 @@ export async function videoRatioFFmpeg(
     ].join(",");
 
     await runFF([
-      "-y", "-i", `"${inputPath}"`,
-      "-t", String(dur),
+      "-y", "-i", `"${inputPath}"`, "-t", String(dur),
       "-vf", `"${filter}"`,
       "-c:v", "libx264", "-crf", "18", "-preset", "medium",
       "-profile:v", "high", "-movflags", "+faststart",
@@ -448,4 +428,56 @@ export async function videoWatermarkFFmpeg(videoUrl: string, text = "EditAI"): P
   } finally {
     await cleanup(inputPath, outputPath);
   }
+}
+
+// ─── Video Trim (Potong) ──────────────────────────────────────────────────────
+
+export async function videoTrimFFmpeg(
+  videoUrl: string,
+  startSec: number,
+  endSec: number
+): Promise<VideoResult> {
+  if (startSec < 0 || endSec <= startSec) {
+    return { success: false, error: "Waktu tidak valid. Pastikan waktu akhir lebih besar dari waktu awal." };
+  }
+
+  const inputPath  = await bufferToTempFile(await fetchBuffer(videoUrl), "mp4");
+  const outputPath = path.join(os.tmpdir(), `editai_trim_${Date.now()}.mp4`);
+
+  try {
+    const dur      = await getDuration(inputPath);
+    const safeEnd  = Math.min(endSec, dur);
+    const duration = safeEnd - startSec;
+
+    if (duration <= 0) {
+      return { success: false, error: `Durasi video hanya ${dur.toFixed(0)}s, tidak bisa potong dari ${startSec}s ke ${endSec}s.` };
+    }
+
+    await runFF([
+      "-y",
+      "-ss", String(startSec),
+      "-i", `"${inputPath}"`,
+      "-t", String(duration),
+      "-c:v", "libx264", "-crf", "18", "-preset", "fast",
+      "-profile:v", "high", "-movflags", "+faststart",
+      "-c:a", "aac", "-b:a", "192k",
+      `"${outputPath}"`,
+    ], 120000);
+
+    const base64 = await toBase64(outputPath, "video/mp4");
+    return {
+      success: true, outputUrl: base64, mimeType: "video/mp4", isVideo: true,
+      message: `Video dipotong: ${formatTime(startSec)} → ${formatTime(safeEnd)} (${duration.toFixed(0)}s)!`,
+    };
+  } catch (err: any) {
+    return { success: false, error: `Potong video gagal: ${err.message?.slice(0, 80)}` };
+  } finally {
+    await cleanup(inputPath, outputPath);
+  }
+}
+
+function formatTime(sec: number): string {
+  const m = Math.floor(sec / 60);
+  const s = Math.floor(sec % 60);
+  return `${m}:${String(s).padStart(2, "0")}`;
 }

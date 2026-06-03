@@ -6,18 +6,18 @@ function escHtml(s: string): string {
   return String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 }
 
-// ─── Menu Utama (Video Only) ──────────────────────────────────────────────────
+// ─── Menu Utama ───────────────────────────────────────────────────────────────
 export function mainInlineKeyboard(): InlineKeyboard {
   return new InlineKeyboard()
     .text("✨ Jernihkan Video", "menu:jernihkan").text("📐 Kualitas Video", "menu:kualitas")
     .row()
     .text("🎞️ Efek Video", "menu:efek").text("📏 Rasio Video", "menu:rasio")
     .row()
-    .text("💬 Tambah Subtitle", "menu:subtitle")
+    .text("💬 Tambah Subtitle", "menu:subtitle").text("✂️ Potong Video", "menu:trim")
     .row()
     .text("🎬 Foto → Video", "menu:foto_video")
     .row()
-    .text("💳 Top Up Kredit", "menu:topup");
+    .text("💳 Top Up Kredit", "menu:topup").text("🎁 Check-in Harian", "menu:checkin");
 }
 
 // ─── Submenu Kualitas ─────────────────────────────────────────────────────────
@@ -114,7 +114,8 @@ export async function handleStart(ctx: Context): Promise<void> {
       : "Selamat datang kembali!") +
     `\n\nSaya asisten AI untuk <b>edit video</b> profesional.\n\n` +
     `💳 Kredit kamu: <b>${user.credits} kredit</b>\n` +
-    `🎞️ Semua fitur video = <b>${VIDEO_EDIT_COST} kredit</b> per proses\n\n` +
+    `🎞️ Semua fitur video = <b>${VIDEO_EDIT_COST} kredit</b> per proses\n` +
+    `🎁 Check-in harian = <b>kredit gratis!</b>\n\n` +
     `Pilih layanan 👇`,
     { parse_mode: "HTML", reply_markup: mainInlineKeyboard() }
   );

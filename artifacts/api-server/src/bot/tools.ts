@@ -1,5 +1,4 @@
 import { logger } from "../lib/logger";
-import { fetchBuffer } from "../lib/image-processor";
 import {
   videoEnhanceFFmpeg,
   videoStabilizeFFmpeg,
@@ -9,15 +8,15 @@ import {
   videoSubtitleOverlayFFmpeg,
   videoEffectFFmpeg,
   videoRatioFFmpeg,
+  videoTrimFFmpeg,
   photoToVideoFFmpeg,
 } from "../lib/video-processor";
-import { klingTextToVideo, klingImageToVideo, isKlingConfigured } from "../lib/kling";
+import { klingImageToVideo, isKlingConfigured } from "../lib/kling";
 import type { EditAction } from "./state";
 
 export interface ToolResult {
   success: boolean;
   outputUrl?: string;
-  outputUrls?: string[];
   error?: string;
   message?: string;
   isVideo?: boolean;
@@ -44,30 +43,34 @@ export async function photoToVideo(imageUrl: string, type: "cinematic" | "zoom" 
 
 // ─── Video Tools ──────────────────────────────────────────────────────────────
 
-export async function videoEnhance(videoUrl: string): Promise<ToolResult>       { return wrap(await videoEnhanceFFmpeg(videoUrl)); }
-export async function videoStabilize(videoUrl: string): Promise<ToolResult>     { return wrap(await videoStabilizeFFmpeg(videoUrl)); }
-export async function videoNoiseReduction(videoUrl: string): Promise<ToolResult>{ return wrap(await videoNoiseReductionFFmpeg(videoUrl)); }
-export async function videoWatermark(videoUrl: string, text = "EditAI"): Promise<ToolResult> { return wrap(await videoWatermarkFFmpeg(videoUrl, text)); }
+export async function videoEnhance(u: string): Promise<ToolResult>        { return wrap(await videoEnhanceFFmpeg(u)); }
+export async function videoStabilize(u: string): Promise<ToolResult>      { return wrap(await videoStabilizeFFmpeg(u)); }
+export async function videoNoiseReduction(u: string): Promise<ToolResult> { return wrap(await videoNoiseReductionFFmpeg(u)); }
+export async function videoWatermark(u: string, t = "EditAI"): Promise<ToolResult> { return wrap(await videoWatermarkFFmpeg(u, t)); }
 
-export async function videoQualityHD(videoUrl: string): Promise<ToolResult>     { return wrap(await videoQualityFFmpeg(videoUrl, "hd")); }
-export async function videoQualityFHD(videoUrl: string): Promise<ToolResult>    { return wrap(await videoQualityFFmpeg(videoUrl, "fhd")); }
-export async function videoQuality4K(videoUrl: string): Promise<ToolResult>     { return wrap(await videoQualityFFmpeg(videoUrl, "4k")); }
+export async function videoQualityHD(u: string): Promise<ToolResult>  { return wrap(await videoQualityFFmpeg(u, "hd")); }
+export async function videoQualityFHD(u: string): Promise<ToolResult> { return wrap(await videoQualityFFmpeg(u, "fhd")); }
+export async function videoQuality4K(u: string): Promise<ToolResult>  { return wrap(await videoQualityFFmpeg(u, "4k")); }
 
-export async function videoSubtitle(videoUrl: string, text: string, position: "top" | "middle" | "bottom" = "bottom"): Promise<ToolResult> {
-  return wrap(await videoSubtitleOverlayFFmpeg(videoUrl, text, position));
+export async function videoSubtitle(u: string, text: string, pos: "top" | "middle" | "bottom" = "bottom"): Promise<ToolResult> {
+  return wrap(await videoSubtitleOverlayFFmpeg(u, text, pos));
 }
 
-export async function videoEffectCinematic(videoUrl: string): Promise<ToolResult> { return wrap(await videoEffectFFmpeg(videoUrl, "cinematic")); }
-export async function videoEffectBW(videoUrl: string): Promise<ToolResult>        { return wrap(await videoEffectFFmpeg(videoUrl, "bw")); }
-export async function videoEffectVintage(videoUrl: string): Promise<ToolResult>   { return wrap(await videoEffectFFmpeg(videoUrl, "vintage")); }
-export async function videoEffectDrama(videoUrl: string): Promise<ToolResult>     { return wrap(await videoEffectFFmpeg(videoUrl, "drama")); }
-export async function videoEffectVivid(videoUrl: string): Promise<ToolResult>     { return wrap(await videoEffectFFmpeg(videoUrl, "vivid")); }
+export async function videoEffectCinematic(u: string): Promise<ToolResult> { return wrap(await videoEffectFFmpeg(u, "cinematic")); }
+export async function videoEffectBW(u: string): Promise<ToolResult>        { return wrap(await videoEffectFFmpeg(u, "bw")); }
+export async function videoEffectVintage(u: string): Promise<ToolResult>   { return wrap(await videoEffectFFmpeg(u, "vintage")); }
+export async function videoEffectDrama(u: string): Promise<ToolResult>     { return wrap(await videoEffectFFmpeg(u, "drama")); }
+export async function videoEffectVivid(u: string): Promise<ToolResult>     { return wrap(await videoEffectFFmpeg(u, "vivid")); }
 
-export async function videoRatio16_9(videoUrl: string): Promise<ToolResult>      { return wrap(await videoRatioFFmpeg(videoUrl, "16_9")); }
-export async function videoRatio9_16(videoUrl: string): Promise<ToolResult>      { return wrap(await videoRatioFFmpeg(videoUrl, "9_16")); }
-export async function videoRatio1_1(videoUrl: string): Promise<ToolResult>       { return wrap(await videoRatioFFmpeg(videoUrl, "1_1")); }
-export async function videoRatio4_3(videoUrl: string): Promise<ToolResult>       { return wrap(await videoRatioFFmpeg(videoUrl, "4_3")); }
-export async function videoRatio21_9(videoUrl: string): Promise<ToolResult>      { return wrap(await videoRatioFFmpeg(videoUrl, "21_9")); }
+export async function videoRatio16_9(u: string): Promise<ToolResult> { return wrap(await videoRatioFFmpeg(u, "16_9")); }
+export async function videoRatio9_16(u: string): Promise<ToolResult> { return wrap(await videoRatioFFmpeg(u, "9_16")); }
+export async function videoRatio1_1(u: string): Promise<ToolResult>  { return wrap(await videoRatioFFmpeg(u, "1_1")); }
+export async function videoRatio4_3(u: string): Promise<ToolResult>  { return wrap(await videoRatioFFmpeg(u, "4_3")); }
+export async function videoRatio21_9(u: string): Promise<ToolResult> { return wrap(await videoRatioFFmpeg(u, "21_9")); }
+
+export async function videoTrim(u: string, startSec: number, endSec: number): Promise<ToolResult> {
+  return wrap(await videoTrimFFmpeg(u, startSec, endSec));
+}
 
 // ─── Router Utama ─────────────────────────────────────────────────────────────
 
@@ -96,6 +99,13 @@ export async function executeEditAction(
         fileUrl,
         extraParams?.text ?? "Subtitle",
         (extraParams?.position as "top" | "middle" | "bottom") ?? "bottom"
+      );
+
+    case "video_trim":
+      return videoTrim(
+        fileUrl,
+        parseFloat(extraParams?.start ?? "0"),
+        parseFloat(extraParams?.end ?? "30")
       );
 
     case "video_effect_cinematic":   return videoEffectCinematic(fileUrl);
