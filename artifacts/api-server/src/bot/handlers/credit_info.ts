@@ -1,5 +1,6 @@
 import type { Context } from "grammy";
-import { getOrCreateUser, FREE_CHAT_QUOTA, FREE_PHOTO_EDIT_QUOTA, FREE_VIDEO_EDIT_QUOTA, FREE_PHOTO_TO_VIDEO_QUOTA, PREMIUM_CHAT_QUOTA, PREMIUM_PHOTO_EDIT_QUOTA, PREMIUM_VIDEO_EDIT_QUOTA, PREMIUM_PHOTO_TO_VIDEO_QUOTA } from "../credits";
+import { getOrCreateUser, PHOTO_EDIT_COST, VIDEO_EDIT_COST, TOPUP_AMOUNT_IDR, TOPUP_CREDITS } from "../credits";
+import { mainKeyboard } from "./start";
 
 export async function handleCreditInfo(ctx: Context): Promise<void> {
   const telegramId = ctx.from?.id;
@@ -7,38 +8,20 @@ export async function handleCreditInfo(ctx: Context): Promise<void> {
 
   const user = await getOrCreateUser(telegramId, ctx.from?.username, ctx.from?.first_name);
 
-  const lastReset = new Date(user.lastDailyReset);
-  const nextReset = new Date(lastReset.getTime() + 24 * 60 * 60 * 1000);
-  const now = new Date();
-  const hoursLeft = Math.max(0, Math.ceil((nextReset.getTime() - now.getTime()) / (1000 * 60 * 60)));
-  const minutesLeft = Math.max(0, Math.ceil((nextReset.getTime() - now.getTime()) / (1000 * 60)));
-
-  const resetText = hoursLeft > 0 ? `${hoursLeft} jam` : `${minutesLeft} menit`;
-
-  if (user.premium) {
-    await ctx.reply(
-      `💳 *Kuota Kamu — ⭐ Premium*\n\n` +
-      `💬 AI Chat: *${user.chatQuota}* / ${PREMIUM_CHAT_QUOTA}\n` +
-      `📷 Edit Foto: *${user.photoEditQuota}* / ${PREMIUM_PHOTO_EDIT_QUOTA}\n` +
-      `🎬 Edit Video: *${user.videoEditQuota}* / ${PREMIUM_VIDEO_EDIT_QUOTA}\n` +
-      `🎞️ Photo to Video: *${user.photoToVideoQuota}* / ${PREMIUM_PHOTO_TO_VIDEO_QUOTA}\n\n` +
-      `🔄 Reset dalam: *${resetText}*\n\n` +
-      `Terima kasih sudah jadi member Premium! 🙏`,
-      { parse_mode: "Markdown" }
-    );
-  } else {
-    await ctx.reply(
-      `💳 *Kuota Kamu — 🆓 Gratis*\n\n` +
-      `💬 AI Chat: *${user.chatQuota}* / ${FREE_CHAT_QUOTA}\n` +
-      `📷 Edit Foto: *${user.photoEditQuota}* / ${FREE_PHOTO_EDIT_QUOTA}\n` +
-      `🎬 Edit Video: *${user.videoEditQuota}* / ${FREE_VIDEO_EDIT_QUOTA}\n` +
-      `🎞️ Photo to Video: *${user.photoToVideoQuota}* / ${FREE_PHOTO_TO_VIDEO_QUOTA}\n\n` +
-      `🔄 Reset dalam: *${resetText}*\n\n` +
-      `💡 *Catatan:* Kuota Chat tidak berkurang saat kamu bertanya — hanya edit yang dihitung!\n\n` +
-      `Ketik /premium untuk upgrade ke Premium ⭐`,
-      { parse_mode: "Markdown" }
-    );
-  }
+  await ctx.reply(
+    `💳 *Kredit Kamu*\n\n` +
+    `💰 Saldo: *${user.credits} kredit*\n\n` +
+    `📋 *Tarif:*\n` +
+    `📷 Edit Foto → *${PHOTO_EDIT_COST} kredit*\n` +
+    `🎞️ Foto → Video → *${VIDEO_EDIT_COST} kredit*\n` +
+    `🖼️ Teks → Foto → *${VIDEO_EDIT_COST} kredit*\n` +
+    `✨ Jernihkan Video → *${VIDEO_EDIT_COST} kredit*\n` +
+    `💬 Chat AI → *GRATIS* ♾️\n\n` +
+    `💡 *Catatan:* Kredit hanya dipotong jika produksi *berhasil*. Jika gagal, kredit tidak berkurang.\n\n` +
+    `💳 *Top Up:* Rp ${TOPUP_AMOUNT_IDR.toLocaleString("id-ID")} = *${TOPUP_CREDITS} kredit*\n` +
+    `Tekan tombol *💳 Top Up Credit* untuk top up.`,
+    { parse_mode: "Markdown", reply_markup: mainKeyboard }
+  );
 }
 
 export async function handleAkunInfo(ctx: Context): Promise<void> {
@@ -48,27 +31,20 @@ export async function handleAkunInfo(ctx: Context): Promise<void> {
   const user = await getOrCreateUser(telegramId, ctx.from?.username, ctx.from?.first_name);
   const name = user.firstName || user.username || "-";
   const joined = new Date(user.registerDate).toLocaleDateString("id-ID", {
-    day: "numeric", month: "long", year: "numeric"
+    day: "numeric", month: "long", year: "numeric",
   });
-
-  const lastReset = new Date(user.lastDailyReset);
-  const nextReset = new Date(lastReset.getTime() + 24 * 60 * 60 * 1000);
-  const now = new Date();
-  const hoursLeft = Math.max(0, Math.ceil((nextReset.getTime() - now.getTime()) / (1000 * 60 * 60)));
 
   await ctx.reply(
     `👤 *Profil Akun*\n\n` +
     `Nama: *${name}*\n` +
     `Username: @${user.username || "-"}\n` +
     `ID: \`${user.telegramId}\`\n` +
-    `Status: ${user.premium ? "⭐ Premium" : "🆓 Gratis"}\n` +
+    `Status: ${user.premium ? "⭐ Premium" : "🆓 Standar"}\n` +
     `Bergabung: ${joined}\n\n` +
-    `📊 *Sisa Kuota Hari Ini:*\n` +
-    `💬 Chat AI: *${user.chatQuota}*\n` +
-    `📷 Edit Foto: *${user.photoEditQuota}*\n` +
-    `🎬 Edit Video: *${user.videoEditQuota}*\n` +
-    `🎞️ Photo to Video: *${user.photoToVideoQuota}*\n\n` +
-    `🔄 Reset dalam: *${hoursLeft} jam*`,
-    { parse_mode: "Markdown" }
+    `💳 *Saldo Kredit: ${user.credits} kredit*\n\n` +
+    `📷 Edit Foto = 1 kredit\n` +
+    `🎞️ Edit/Buat Video = 3 kredit\n` +
+    `💬 Chat AI = GRATIS`,
+    { parse_mode: "Markdown", reply_markup: mainKeyboard }
   );
 }

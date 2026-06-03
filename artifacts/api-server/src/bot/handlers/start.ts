@@ -1,20 +1,31 @@
 import type { Context } from "grammy";
-import { getOrCreateUser } from "../credits";
+import { Keyboard } from "grammy";
+import { getOrCreateUser, NEW_USER_CREDITS, PHOTO_EDIT_COST, VIDEO_EDIT_COST, TOPUP_AMOUNT_IDR, TOPUP_CREDITS } from "../credits";
 
-export function getMenuText(): string {
+// ─── Keyboard tombol utama (muncul di bawah layar) ───────────────────────────
+
+export const mainKeyboard = new Keyboard()
+  .text("📷 Edit Foto").text("🎞️ Foto → Video")
+  .row()
+  .text("🖼️ Teks → Foto").text("✨ Jernihkan Video")
+  .row()
+  .text("💳 Top Up Credit")
+  .resized()
+  .persistent();
+
+export function getTopUpText(): string {
   return (
-    `Pilih layanan yang kamu inginkan:\n\n` +
-    `1️⃣  *Edit Foto*\n` +
-    `      _(hapus background, upscale, anime, dll)_\n\n` +
-    `2️⃣  *Teks → Foto*\n` +
-    `      _(buat gambar dari deskripsi teks)_\n\n` +
-    `3️⃣  *Teks → Video*\n` +
-    `      _(buat video dari deskripsi teks)_\n\n` +
-    `4️⃣  *Foto → Video*\n` +
-    `      _(ubah foto jadi video cinematic)_\n\n` +
-    `5️⃣  *Jernihkan Kualitas Video*\n` +
-    `      _(denoise, sharpen, warna lebih hidup)_\n\n` +
-    `Ketik angka *1–5* untuk mulai.`
+    `💳 *Top Up Kredit EditAI*\n\n` +
+    `💰 *Harga:* Rp ${TOPUP_AMOUNT_IDR.toLocaleString("id-ID")} → *${TOPUP_CREDITS} kredit*\n\n` +
+    `*Tarif penggunaan:*\n` +
+    `📷 Edit Foto → *${PHOTO_EDIT_COST} kredit*\n` +
+    `🎞️ Foto/Video → *${VIDEO_EDIT_COST} kredit*\n` +
+    `💬 Chat AI → *GRATIS*\n\n` +
+    `*Cara Top Up:*\n` +
+    `1. Transfer Rp ${TOPUP_AMOUNT_IDR.toLocaleString("id-ID")} ke rekening admin\n` +
+    `2. Kirim screenshot bukti transfer ke chat ini\n` +
+    `3. Admin akan menambahkan kredit dalam 1×24 jam\n\n` +
+    `_Hubungi admin untuk info rekening pembayaran._`
   );
 }
 
@@ -22,22 +33,17 @@ export async function handleStart(ctx: Context): Promise<void> {
   const telegramId = ctx.from?.id;
   if (!telegramId) return;
 
-  const user = await getOrCreateUser(
-    telegramId,
-    ctx.from?.username,
-    ctx.from?.first_name
-  );
-
+  const user = await getOrCreateUser(telegramId, ctx.from?.username, ctx.from?.first_name);
   const name = user.firstName || user.username || "kamu";
+  const isNew = (Date.now() - new Date(user.registerDate).getTime()) < 10000;
 
   await ctx.reply(
-    `Hei *${name}*! 👋 Selamat datang di *EditAI*\n\n` +
-    `Saya asisten AI untuk edit foto dan video.\n` +
-    `Saya hanya memahami pertanyaan seputar foto & video editing.\n\n` +
-    (user.premium
-      ? `⭐ Status: *Premium*\n\n`
-      : `🆓 Kuota hari ini: 💬${user.chatQuota} · 📷${user.photoEditQuota} foto · 🎬${user.videoEditQuota} video\n\n`) +
-    getMenuText(),
-    { parse_mode: "Markdown" }
+    `Hei *${name}*! 👋 ${isNew ? "Selamat datang di *EditAI*!\n\nKamu dapat *20 kredit gratis* untuk memulai. 🎉" : "Selamat datang kembali!"}\n\n` +
+    `Saya asisten AI untuk *edit foto & video*.\n` +
+    `💬 Chat dengan saya *gratis* — kredit hanya dipotong saat produksi berhasil.\n\n` +
+    `💳 Kredit kamu: *${user.credits} kredit*\n` +
+    `📷 Edit Foto = *1 kredit* | 🎞️ Edit Video = *3 kredit*\n\n` +
+    `Pilih layanan di bawah ini 👇`,
+    { parse_mode: "Markdown", reply_markup: mainKeyboard }
   );
 }

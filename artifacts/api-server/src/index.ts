@@ -1,6 +1,7 @@
 import app from "./app";
 import { logger } from "./lib/logger";
 import { createBot } from "./bot";
+import { runMigrations } from "@workspace/db";
 
 const rawPort = process.env["PORT"];
 
@@ -24,15 +25,22 @@ app.listen(port, (err) => {
   logger.info({ port }, "Server listening");
 });
 
-if (process.env.TELEGRAM_BOT_TOKEN) {
-  const bot = createBot();
-  bot.start({
-    onStart: (botInfo) => {
-      logger.info({ username: botInfo.username }, "Bot Telegram berjalan");
-    },
+// Jalankan migrasi DB sebelum bot start
+runMigrations()
+  .then(() => {
+    if (process.env.TELEGRAM_BOT_TOKEN) {
+      const bot = createBot();
+      bot.start({
+        onStart: (botInfo) => {
+          logger.info({ username: botInfo.username }, "Bot Telegram berjalan");
+        },
+      });
+      process.once("SIGINT", () => bot.stop());
+      process.once("SIGTERM", () => bot.stop());
+    } else {
+      logger.warn("TELEGRAM_BOT_TOKEN tidak diset — bot tidak akan berjalan. Tambahkan di Secrets.");
+    }
+  })
+  .catch((err) => {
+    logger.error({ err }, "Gagal migrasi DB — bot tidak akan berjalan");
   });
-  process.once("SIGINT", () => bot.stop());
-  process.once("SIGTERM", () => bot.stop());
-} else {
-  logger.warn("TELEGRAM_BOT_TOKEN tidak diset — bot tidak akan berjalan. Tambahkan di Secrets.");
-}
