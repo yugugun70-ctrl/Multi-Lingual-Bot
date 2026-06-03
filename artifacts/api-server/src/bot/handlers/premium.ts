@@ -6,9 +6,13 @@ import { getUserState, setUserState } from "../state";
 import { mainInlineKeyboard, getTopUpText } from "./start";
 import { getConfigValue } from "../../lib/config";
 
+function escHtml(s: string): string {
+  return String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+}
+
 function getAdminIds(): number[] {
   const adminId = getConfigValue("ADMIN_ID");
-  const envIds = process.env.ADMIN_TELEGRAM_IDS;
+  const envIds  = process.env.ADMIN_TELEGRAM_IDS;
   const ids: number[] = [];
   if (adminId) ids.push(parseInt(adminId));
   if (envIds) {
@@ -20,9 +24,6 @@ function getAdminIds(): number[] {
   return ids;
 }
 
-const PAYMENT_BANK    = process.env.PAYMENT_INFO_BANK;
-const PAYMENT_EWALLET = process.env.PAYMENT_INFO_EWALLET;
-
 export async function handlePremiumCommand(ctx: Context): Promise<void> {
   return handleTopUp(ctx);
 }
@@ -31,15 +32,10 @@ export async function handleTopUp(ctx: Context): Promise<void> {
   const telegramId = ctx.from?.id;
   if (!telegramId) return;
 
-  let paymentInfo = "";
-  if (PAYMENT_BANK)    paymentInfo += `🏦 *Transfer Bank:*\n\`${PAYMENT_BANK}\`\n\n`;
-  if (PAYMENT_EWALLET) paymentInfo += `📱 *E-Wallet (GoPay/OVO/Dana):*\n\`${PAYMENT_EWALLET}\`\n\n`;
-  if (!paymentInfo)    paymentInfo = "📞 Hubungi admin untuk info rekening.\n\n";
-
+  // getTopUpText() sudah include rekening BNI/GoPay — cukup tampilkan itu saja
   await ctx.reply(
-    getTopUpText() + `\n\n${paymentInfo}` +
-    `_Setelah transfer, kirim foto/screenshot bukti pembayaran ke chat ini._`,
-    { parse_mode: "Markdown", reply_markup: mainInlineKeyboard() }
+    getTopUpText() + `\n\n<i>Setelah transfer, kirim foto/screenshot bukti pembayaran ke chat ini.</i>`,
+    { parse_mode: "HTML", reply_markup: mainInlineKeyboard() }
   );
 
   setUserState(telegramId, { awaitingPaymentProof: true });
@@ -50,30 +46,30 @@ export async function handlePaymentProof(ctx: Context): Promise<void> {
   if (!telegramId) return;
 
   const user = await getOrCreateUser(telegramId, ctx.from?.username, ctx.from?.first_name);
-  const name = user.firstName || user.username || `User ${telegramId}`;
+  const name = escHtml(user.firstName || user.username || `User ${telegramId}`);
 
   await ctx.reply(
-    `✅ *Bukti pembayaran diterima!*\n\n` +
-    `Terima kasih ${name}! Admin akan memverifikasi dalam *1×24 jam*.\n` +
-    `Setelah dikonfirmasi, *${TOPUP_CREDITS} kredit* akan ditambahkan ke akun kamu. 🙏`,
-    { parse_mode: "Markdown", reply_markup: mainInlineKeyboard() }
+    `✅ <b>Bukti pembayaran diterima!</b>\n\n` +
+    `Terima kasih ${name}! Admin akan memverifikasi dalam <b>1×24 jam</b>.\n` +
+    `Setelah dikonfirmasi, <b>${TOPUP_CREDITS} kredit</b> akan ditambahkan ke akun kamu. 🙏`,
+    { parse_mode: "HTML", reply_markup: mainInlineKeyboard() }
   );
 
   for (const adminId of getAdminIds()) {
     try {
       await ctx.api.sendMessage(
         adminId,
-        `💳 *Permintaan Top Up Baru!*\n\n` +
-        `👤 ${name} (@${user.username || "-"})\n` +
-        `🆔 ID: \`${telegramId}\`\n` +
+        `💳 <b>Permintaan Top Up Baru!</b>\n\n` +
+        `👤 ${name} (@${escHtml(user.username || "-")})\n` +
+        `🆔 ID: <code>${telegramId}</code>\n` +
         `💰 Nominal: Rp ${TOPUP_AMOUNT_IDR.toLocaleString("id-ID")} → ${TOPUP_CREDITS} kredit\n\n` +
-        `Konfirmasi dengan:\n\`/addcredit ${telegramId} ${TOPUP_CREDITS}\``,
-        { parse_mode: "Markdown" }
+        `Konfirmasi dengan:\n<code>/addcredit ${telegramId} ${TOPUP_CREDITS}</code>`,
+        { parse_mode: "HTML" }
       );
       if (ctx.message?.photo || ctx.message?.document) {
         await ctx.api.forwardMessage(adminId, telegramId, ctx.message.message_id);
       }
-    } catch { /* ignore */ }
+    } catch { /* ignore jika admin tidak bisa dihubungi */ }
   }
 
   setUserState(telegramId, { awaitingPaymentProof: false });
@@ -99,17 +95,17 @@ export async function handleAdminApprove(ctx: Context, args: string[]): Promise<
   await db.update(usersTable).set({ premium: newStatus }).where(eq(usersTable.telegramId, targetId));
 
   await ctx.reply(
-    `✅ User \`${targetId}\` berhasil ${newStatus ? "diupgrade ke ⭐ *Premium*" : "dikembalikan ke 🆓 *Standar*"}`,
-    { parse_mode: "Markdown" }
+    `✅ User <code>${targetId}</code> berhasil ${newStatus ? "diupgrade ke ⭐ <b>Premium</b>" : "dikembalikan ke 🆓 <b>Standar</b>"}`,
+    { parse_mode: "HTML" }
   );
 
   try {
     await ctx.api.sendMessage(
       targetId,
       newStatus
-        ? `🎉 *Selamat! Status kamu diupgrade ke ⭐ Premium!*\n\nTerima kasih sudah mendukung EditAI!`
+        ? `🎉 <b>Selamat! Status kamu diupgrade ke ⭐ Premium!</b>\n\nTerima kasih sudah mendukung EditAI!`
         : `ℹ️ Status Premium kamu telah berakhir. Ketik /topup untuk top up kredit.`,
-      { parse_mode: "Markdown" }
+      { parse_mode: "HTML" }
     );
   } catch { /* ignore */ }
 }

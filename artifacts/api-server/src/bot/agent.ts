@@ -14,52 +14,26 @@ function getNvidiaClient(): OpenAI | null {
   });
 }
 
+const NVIDIA_PRIMARY_MODEL   = "nvidia/llama-3.1-nemotron-nano-8b-v1";
 const NVIDIA_VISION_MODEL    = "meta/llama-3.2-11b-vision-instruct";
-const NVIDIA_TEXT_MODEL      = "nvidia/llama-3.3-nemotron-super-49b-v1";
-const NVIDIA_FALLBACK_MODEL  = "nvidia/llama-3.1-nemotron-nano-8b-v1";
-const NVIDIA_FALLBACK2_MODEL = "meta/llama-3.3-70b-instruct";
+const NVIDIA_FALLBACK_MODEL  = "meta/llama-3.3-70b-instruct";
 
-const SYSTEM_PROMPT = `Kamu adalah EditAI — asisten AI khusus edit foto dan video di Telegram.
-Kamu HANYA bisa membantu hal-hal yang berkaitan dengan foto dan video editing.
-Kamu didukung oleh NVIDIA AI (Llama Vision & Nemotron).
+const SYSTEM_PROMPT = `Kamu adalah EditAI, bot Telegram untuk edit foto & video.
+HANYA balas dalam format JSON berikut — tidak boleh ada teks lain:
+{"message":"balasanmu","action":null,"off_topic":false}
 
-KEPRIBADIAN:
-- Ramah, singkat, profesional
-- Balas dalam BAHASA YANG SAMA dengan pengguna (default Bahasa Indonesia)
-- TIDAK pernah membahas topik di luar foto/video editing
+Daftar action yang valid:
+remove_background, upscale_photo, enhance_photo, anime_effect, cartoon_effect,
+glow_effect, hdr_effect, sketch_effect, neon_effect, oil_paint_effect, vintage_effect,
+color_correction, portrait_enhance, photo_to_video_cinematic, photo_to_video_zoom,
+photo_to_video_pan, video_enhance
 
-TOPIK YANG KAMU BOLEH BAHAS:
-- Teknik edit foto & video
-- Cara pakai tools editing (Adobe, Lightroom, Capcut, dll)
-- Saran warna, komposisi, efek
-- Analisis foto yang dikirim user
-- Fitur editing bot ini
-
-JIKA TOPIK DI LUAR FOTO/VIDEO EDITING:
-- Balas dengan off_topic: true di JSON
-- Berikan pesan sopan bahwa kamu hanya untuk foto & video editing
-
-AKSI EDITING YANG TERSEDIA:
-FOTO: remove_background, upscale_photo, enhance_photo, anime_effect, cartoon_effect, portrait_enhance, color_correction, remove_object, style_transfer
-VIDEO: video_upscale, video_enhance, video_stabilize, video_subtitle, video_resize, video_watermark, video_noise_reduction
-FOTO→VIDEO: photo_to_video_cinematic, photo_to_video_zoom, photo_to_video_pan, image_to_video
-TEKS→VIDEO: text_to_video
-
-ALUR KERJA:
-1. User kirim foto + deskripsi edit → pilih action terbaik, langsung set action (jangan minta konfirmasi lagi)
-2. User minta langsung ("hapus background sekarang") → set action langsung
-3. User tanya tentang editing → jawab dengan natural, action: null
-4. Topik lain → off_topic: true
-
-FORMAT RESPONS (WAJIB JSON VALID, tidak ada teks di luar JSON):
-{
-  "message": "pesan naturalmu ke pengguna",
-  "action": null atau nama action,
-  "needs_confirmation": false,
-  "is_confirmation": false,
-  "off_topic": false,
-  "extra_params": {}
-}`;
+ATURAN:
+- Jika user minta edit foto/video → set action sesuai
+- Jika user tanya tentang editing → jelaskan singkat, action null
+- Jika topik lain → off_topic true, tolak sopan
+- Selalu balas bahasa Indonesia
+- message harus singkat, ramah, profesional`;
 
 export interface AgentResponse {
   message: string;
@@ -70,25 +44,120 @@ export interface AgentResponse {
   extraParams?: Record<string, string>;
 }
 
-async function callNvidiaWithFallback(
+// Normalisasi alias action dari model → EditAction yang valid
+const ACTION_ALIASES: Record<string, EditAction> = {
+  "remove_bg":              "remove_background",
+  "remove background":      "remove_background",
+  "removebg":               "remove_background",
+  "background_removal":     "remove_background",
+  "upscale":                "upscale_photo",
+  "upscale_image":          "upscale_photo",
+  "enhance":                "enhance_photo",
+  "enhance_image":          "enhance_photo",
+  "improve_quality":        "enhance_photo",
+  "anime":                  "anime_effect",
+  "cartoon":                "cartoon_effect",
+  "hdr":                    "hdr_effect",
+  "glow":                   "glow_effect",
+  "bloom":                  "glow_effect",
+  "sketch":                 "sketch_effect",
+  "pencil_sketch":          "sketch_effect",
+  "neon":                   "neon_effect",
+  "cyberpunk":              "neon_effect",
+  "oil_paint":              "oil_paint_effect",
+  "oil_painting":           "oil_paint_effect",
+  "vintage":                "vintage_effect",
+  "retro":                  "vintage_effect",
+  "film_grain":             "vintage_effect",
+  "color":                  "color_correction",
+  "color_correct":          "color_correction",
+  "color_enhance":          "color_correction",
+  "portrait":               "portrait_enhance",
+  "face_enhance":           "portrait_enhance",
+  "photo_to_video":         "photo_to_video_cinematic",
+  "image_to_video":         "photo_to_video_cinematic",
+  "cinematic":              "photo_to_video_cinematic",
+  "zoom_video":             "photo_to_video_zoom",
+  "pan_video":              "photo_to_video_pan",
+  "video_quality":          "video_enhance",
+  "enhance_video":          "video_enhance",
+  "stabilize":              "video_stabilize",
+  "denoise":                "video_noise_reduction",
+  "noise_reduction":        "video_noise_reduction",
+  "watermark":              "video_watermark",
+  "subtitle":               "video_subtitle",
+};
+
+const VALID_ACTIONS = new Set<string>([
+  "remove_background","upscale_photo","enhance_photo","anime_effect","cartoon_effect",
+  "hdr_effect","glow_effect","sketch_effect","neon_effect","oil_paint_effect","vintage_effect",
+  "portrait_enhance","color_correction","remove_object","style_transfer",
+  "photo_to_video_cinematic","photo_to_video_zoom","photo_to_video_pan",
+  "image_to_video","text_to_video",
+  "video_upscale","video_enhance","video_stabilize","video_subtitle","video_caption",
+  "video_resize","video_watermark","video_noise_reduction",
+]);
+
+function normalizeAction(raw: string | null | undefined): EditAction | null {
+  if (!raw) return null;
+  const s = String(raw).trim().toLowerCase();
+  if (VALID_ACTIONS.has(s)) return s as EditAction;
+  if (ACTION_ALIASES[s]) return ACTION_ALIASES[s];
+  return null;
+}
+
+function parseAgentResponse(rawText: string): AgentResponse {
+  const fallback: AgentResponse = {
+    message: rawText.trim().slice(0, 300) || "Maaf, coba lagi ya!",
+    action: null,
+    needsConfirmation: false,
+    isConfirmation: false,
+    offTopic: false,
+  };
+
+  // Cari JSON di dalam teks (ambil yang pertama ditemukan)
+  const jsonMatch = rawText.match(/\{[\s\S]*?\}/);
+  if (!jsonMatch) return fallback;
+
+  try {
+    const raw = JSON.parse(jsonMatch[0]) as any;
+    // Validasi: message harus string pendek (bukan template/format guide)
+    const msg = String(raw.message ?? "").trim();
+    if (!msg || msg.length > 1000 || msg.includes('"action"') || msg.includes('"message"')) {
+      return fallback;
+    }
+    return {
+      message: msg,
+      action: normalizeAction(raw.action),
+      needsConfirmation: false,
+      isConfirmation: false,
+      offTopic: !!raw.off_topic,
+      extraParams: raw.extra_params ?? undefined,
+    };
+  } catch {
+    return fallback;
+  }
+}
+
+async function callNvidiaModel(
   client: OpenAI,
   messages: OpenAI.Chat.ChatCompletionMessageParam[],
   hasImage: boolean
 ): Promise<string> {
-  const modelsToTry = hasImage
-    ? [NVIDIA_VISION_MODEL, NVIDIA_FALLBACK2_MODEL, NVIDIA_FALLBACK_MODEL]
-    : [NVIDIA_TEXT_MODEL, NVIDIA_FALLBACK_MODEL, NVIDIA_VISION_MODEL, NVIDIA_FALLBACK2_MODEL];
+  const orderedModels = hasImage
+    ? [NVIDIA_VISION_MODEL, NVIDIA_PRIMARY_MODEL, NVIDIA_FALLBACK_MODEL]
+    : [NVIDIA_PRIMARY_MODEL, NVIDIA_FALLBACK_MODEL, NVIDIA_VISION_MODEL];
 
-  for (const model of modelsToTry) {
+  for (const model of orderedModels) {
     try {
-      logger.info({ model, hasImage }, "Memanggil NVIDIA NIM");
+      logger.info({ model, hasImage }, "Memanggil NVIDIA");
       const response = await client.chat.completions.create({
         model,
-        max_tokens: 512,
+        max_tokens: 300,
+        temperature: 0.3,
         messages,
-        temperature: 0.6,
       });
-      const text = response.choices[0]?.message?.content ?? "";
+      const text = response.choices[0]?.message?.content?.trim() ?? "";
       if (text) return text;
     } catch (err: any) {
       const skip = err?.status === 429 || err?.status === 503 || err?.status === 404;
@@ -96,7 +165,7 @@ async function callNvidiaWithFallback(
       throw err;
     }
   }
-  throw new Error("Semua model NVIDIA sedang sibuk. Coba lagi sebentar.");
+  throw new Error("Semua model AI sedang sibuk. Coba lagi sebentar.");
 }
 
 export async function runAgent(
@@ -109,11 +178,8 @@ export async function runAgent(
 
   if (!nvidiaClient) {
     return {
-      message: "⚠️ NVIDIA API Key belum dikonfigurasi.\n\nAdmin perlu mengisi API key di halaman setup bot. Hubungi admin.",
-      action: null,
-      needsConfirmation: false,
-      isConfirmation: false,
-      offTopic: false,
+      message: "NVIDIA API Key belum dikonfigurasi. Hubungi admin untuk mengisi API key.",
+      action: null, needsConfirmation: false, isConfirmation: false, offTopic: false,
     };
   }
 
@@ -122,7 +188,7 @@ export async function runAgent(
     .from(chatHistoryTable)
     .where(eq(chatHistoryTable.telegramId, telegramId))
     .orderBy(asc(chatHistoryTable.createdAt))
-    .limit(12);
+    .limit(8);
 
   const messages: OpenAI.Chat.ChatCompletionMessageParam[] = [
     { role: "system", content: SYSTEM_PROMPT },
@@ -135,50 +201,30 @@ export async function runAgent(
   let userHistoryContent: string;
   if (imageBase64) {
     const dataUrl = `data:${imageMediaType ?? "image/jpeg"};base64,${imageBase64}`;
-    const textPart = userText ? `dengan permintaan: "${userText}"` : "tanpa keterangan";
+    const request = userText ? `"${userText}"` : "pilihkan action terbaik";
     messages.push({
       role: "user",
       content: [
-        { type: "text", text: `[User mengirim foto ${textPart}]. Analisis dan tentukan action terbaik langsung.` },
+        { type: "text", text: `User kirim foto, minta: ${request}. Balas JSON saja.` },
         { type: "image_url", image_url: { url: dataUrl } },
       ],
     });
-    userHistoryContent = `[Foto dikirim]${userText ? ` — "${userText}"` : ""}`;
+    userHistoryContent = `[Foto] ${userText || ""}`;
   } else {
-    const content = userText || "[Media tanpa teks]";
+    const content = `${userText || "[Media]"} → balas JSON saja!`;
     messages.push({ role: "user", content });
-    userHistoryContent = content;
+    userHistoryContent = userText || "[Media]";
   }
 
   let parsed: AgentResponse = {
-    message: "Maaf, saya tidak bisa menjawab saat ini. Coba lagi ya!",
-    action: null,
-    needsConfirmation: false,
-    isConfirmation: false,
-    offTopic: false,
+    message: "Maaf, ada gangguan. Coba lagi ya!",
+    action: null, needsConfirmation: false, isConfirmation: false, offTopic: false,
   };
 
   try {
-    const rawText = await callNvidiaWithFallback(nvidiaClient, messages, !!imageBase64);
-    const jsonMatch = rawText.match(/\{[\s\S]*\}/);
-
-    if (jsonMatch) {
-      try {
-        const raw = JSON.parse(jsonMatch[0]) as any;
-        parsed = {
-          message: raw.message ?? rawText,
-          action: (raw.action as EditAction) ?? null,
-          needsConfirmation: raw.needs_confirmation ?? false,
-          isConfirmation: raw.is_confirmation ?? false,
-          offTopic: raw.off_topic ?? false,
-          extraParams: raw.extra_params,
-        };
-      } catch {
-        parsed.message = rawText;
-      }
-    } else {
-      parsed.message = rawText || parsed.message;
-    }
+    const rawText = await callNvidiaModel(nvidiaClient, messages, !!imageBase64);
+    logger.debug({ rawText: rawText.slice(0, 200) }, "NVIDIA raw response");
+    parsed = parseAgentResponse(rawText);
 
     await db.insert(chatHistoryTable).values([
       { telegramId, role: "user", content: userHistoryContent },
@@ -186,11 +232,9 @@ export async function runAgent(
     ]);
   } catch (err: any) {
     logger.error({ err }, "NVIDIA Agent error");
-    if (err?.message?.includes("sibuk") || err?.message?.includes("penuh")) {
-      parsed.message = "⏳ AI sedang sibuk. Coba lagi dalam 1-2 menit ya!";
-    } else {
-      parsed.message = `⚠️ ${err.message?.slice(0, 100) ?? "Terjadi kesalahan"}`;
-    }
+    parsed.message = err?.message?.includes("sibuk")
+      ? "AI sedang sibuk, coba lagi dalam 1-2 menit ya!"
+      : "Terjadi kesalahan sementara. Coba lagi ya!";
   }
 
   return parsed;

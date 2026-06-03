@@ -11,43 +11,38 @@ const execAsync = promisify(exec);
 export interface VideoResult {
   success: boolean;
   outputUrl?: string;
-  outputBuffer?: Buffer;
-  outputBase64?: string;
   mimeType?: string;
   error?: string;
   message?: string;
   isVideo?: boolean;
 }
 
-// Durasi maksimum video output (detik)
 const MAX_DURATION_SEC = 30;
 
-// Temukan binary ffmpeg
-function getFfmpegPath(): string {
+function ffmpeg(): string {
   return process.env.FFMPEG_PATH ?? "ffmpeg";
 }
 
-// Jalankan ffmpeg command
-async function runFfmpeg(args: string[], timeoutMs = 180000): Promise<void> {
-  const ffmpeg = getFfmpegPath();
-  const cmd = `${ffmpeg} ${args.join(" ")}`;
-  logger.info({ cmd }, "Menjalankan FFmpeg");
+function ffprobe(): string {
+  return (process.env.FFMPEG_PATH ?? "ffmpeg").replace("ffmpeg", "ffprobe");
+}
+
+async function runFF(args: string[], timeoutMs = 120000): Promise<void> {
+  const cmd = `${ffmpeg()} ${args.join(" ")}`;
+  logger.info({ cmd: cmd.slice(0, 200) }, "FFmpeg");
   const { stderr } = await execAsync(cmd, { timeout: timeoutMs });
   if (stderr) logger.debug({ stderr: stderr.slice(0, 200) }, "FFmpeg stderr");
 }
 
-// Baca file output ke base64
-async function fileToBase64(filePath: string, mime: string): Promise<string> {
+async function toBase64(filePath: string, mime: string): Promise<string> {
   const buf = await fs.readFile(filePath);
   return `data:${mime};base64,${buf.toString("base64")}`;
 }
 
-// Dapatkan durasi video (detik)
-async function getVideoDuration(inputPath: string): Promise<number> {
+async function getDuration(inputPath: string): Promise<number> {
   try {
-    const ffprobe = getFfmpegPath().replace("ffmpeg", "ffprobe");
     const { stdout } = await execAsync(
-      `${ffprobe} -v error -show_entries format=duration -of default=noprint_wrappers=1:nokey=1 "${inputPath}"`
+      `${ffprobe()} -v error -show_entries format=duration -of default=noprint_wrappers=1:nokey=1 "${inputPath}"`
     );
     return Math.min(parseFloat(stdout.trim()) || MAX_DURATION_SEC, MAX_DURATION_SEC);
   } catch {
@@ -55,333 +50,268 @@ async function getVideoDuration(inputPath: string): Promise<number> {
   }
 }
 
-// ─── Video Upscale via FFmpeg (scale up + sharpen, max 30s) ──────────────────
-
-export async function videoUpscaleFFmpeg(videoUrl: string): Promise<VideoResult> {
-  const inputPath = await bufferToTempFile(await fetchBuffer(videoUrl), "mp4");
-  const outputPath = path.join(os.tmpdir(), `editai_upscale_${Date.now()}.mp4`);
-
-  try {
-    const dur = await getVideoDuration(inputPath);
-    await runFfmpeg([
-      "-y", "-i", `"${inputPath}"`,
-      "-t", String(dur),
-      // Scale 2x Lanczos + unsharp mask untuk detail tajam
-      "-vf", "scale=iw*2:ih*2:flags=lanczos,unsharp=5:5:1.5:5:5:0.0",
-      "-c:v", "libx264",
-      // CRF 15 = kualitas sangat tinggi (0 = lossless, 51 = terburuk)
-      "-crf", "15",
-      "-preset", "slow",
-      "-profile:v", "high",
-      "-level", "4.1",
-      "-movflags", "+faststart",
-      "-c:a", "aac", "-b:a", "192k",
-      `"${outputPath}"`,
-    ]);
-
-    const base64 = await fileToBase64(outputPath, "video/mp4");
-    return {
-      success: true,
-      outputUrl: base64,
-      mimeType: "video/mp4",
-      isVideo: true,
-      message: `✅ Video di-upscale 2x (kualitas ultra, max ${dur.toFixed(0)}s)!`,
-    };
-  } catch (err: any) {
-    logger.error({ err }, "Video upscale gagal");
-    return { success: false, error: `Video upscale gagal: ${err.message}` };
-  } finally {
-    await fs.unlink(inputPath).catch(() => {});
-    await fs.unlink(outputPath).catch(() => {});
-  }
+async function cleanup(...paths: string[]): Promise<void> {
+  await Promise.all(paths.map((p) => fs.unlink(p).catch(() => {})));
 }
 
-// ─── Video Enhance via FFmpeg (jernih, tajam, warna hidup) ───────────────────
-
-export async function videoEnhanceFFmpeg(videoUrl: string): Promise<VideoResult> {
-  const inputPath = await bufferToTempFile(await fetchBuffer(videoUrl), "mp4");
-  const outputPath = path.join(os.tmpdir(), `editai_enhance_${Date.now()}.mp4`);
-
-  try {
-    const dur = await getVideoDuration(inputPath);
-    // Pipeline: hapus noise → tajamkan → tingkatkan kontras & saturasi
-    const filterChain = [
-      "hqdn3d=2:1.5:3:2.5",                               // denoise halus
-      "unsharp=5:5:1.2:3:3:0.5",                          // sharpen
-      "eq=contrast=1.05:saturation=1.15:brightness=0.02", // color boost
-      "scale=iw:ih:flags=lanczos",                         // resample bersih
-    ].join(",");
-
-    await runFfmpeg([
-      "-y", "-i", `"${inputPath}"`,
-      "-t", String(dur),
-      "-vf", filterChain,
-      "-c:v", "libx264",
-      "-crf", "16",
-      "-preset", "slow",
-      "-profile:v", "high",
-      "-level", "4.1",
-      "-movflags", "+faststart",
-      "-c:a", "aac", "-b:a", "192k",
-      `"${outputPath}"`,
-    ]);
-
-    const base64 = await fileToBase64(outputPath, "video/mp4");
-    return {
-      success: true,
-      outputUrl: base64,
-      mimeType: "video/mp4",
-      isVideo: true,
-      message: `✅ Video ditingkatkan: lebih jernih, tajam & warna hidup (max ${dur.toFixed(0)}s)!`,
-    };
-  } catch (err: any) {
-    logger.error({ err }, "Video enhance gagal");
-    return { success: false, error: `Video enhance gagal: ${err.message}` };
-  } finally {
-    await fs.unlink(inputPath).catch(() => {});
-    await fs.unlink(outputPath).catch(() => {});
-  }
-}
-
-// ─── Video Stabilize via FFmpeg (vidstab, max 30s) ───────────────────────────
-
-export async function videoStabilizeFFmpeg(videoUrl: string): Promise<VideoResult> {
-  const inputPath = await bufferToTempFile(await fetchBuffer(videoUrl), "mp4");
-  const stabPath = path.join(os.tmpdir(), `editai_stab_${Date.now()}.trf`);
-  const outputPath = path.join(os.tmpdir(), `editai_stable_${Date.now()}.mp4`);
-
-  try {
-    const dur = await getVideoDuration(inputPath);
-
-    // Pass 1: analisis getaran
-    await runFfmpeg([
-      "-y", "-i", `"${inputPath}"`,
-      "-t", String(dur),
-      "-vf", `vidstabdetect=shakiness=10:accuracy=15:result="${stabPath}"`,
-      "-f", "null", "-",
-    ]);
-
-    // Pass 2: stabilisasi + sharpen
-    await runFfmpeg([
-      "-y", "-i", `"${inputPath}"`,
-      "-t", String(dur),
-      "-vf", `vidstabtransform=input="${stabPath}":zoom=1:smoothing=30,unsharp=5:5:1.0:3:3:0.4`,
-      "-c:v", "libx264",
-      "-crf", "17",
-      "-preset", "slow",
-      "-profile:v", "high",
-      "-movflags", "+faststart",
-      "-c:a", "aac", "-b:a", "192k",
-      `"${outputPath}"`,
-    ]);
-
-    const base64 = await fileToBase64(outputPath, "video/mp4");
-    return {
-      success: true,
-      outputUrl: base64,
-      mimeType: "video/mp4",
-      isVideo: true,
-      message: `✅ Video distabilkan dan dipertajam (max ${dur.toFixed(0)}s)!`,
-    };
-  } catch (err: any) {
-    logger.error({ err }, "Video stabilize gagal");
-    return { success: false, error: `Video stabilize gagal: ${err.message}` };
-  } finally {
-    await Promise.all([
-      fs.unlink(inputPath).catch(() => {}),
-      fs.unlink(stabPath).catch(() => {}),
-      fs.unlink(outputPath).catch(() => {}),
-    ]);
-  }
-}
-
-// ─── Video Resize via FFmpeg (max 30s) ───────────────────────────────────────
-
-export async function videoResizeFFmpeg(videoUrl: string, width = 1280, height = 720): Promise<VideoResult> {
-  const inputPath = await bufferToTempFile(await fetchBuffer(videoUrl), "mp4");
-  const outputPath = path.join(os.tmpdir(), `editai_resize_${Date.now()}.mp4`);
-
-  try {
-    const dur = await getVideoDuration(inputPath);
-    await runFfmpeg([
-      "-y", "-i", `"${inputPath}"`,
-      "-t", String(dur),
-      "-vf", `scale=${width}:${height}:force_original_aspect_ratio=decrease:flags=lanczos,pad=${width}:${height}:(ow-iw)/2:(oh-ih)/2`,
-      "-c:v", "libx264",
-      "-crf", "18",
-      "-preset", "slow",
-      "-movflags", "+faststart",
-      "-c:a", "aac", "-b:a", "192k",
-      `"${outputPath}"`,
-    ]);
-
-    const base64 = await fileToBase64(outputPath, "video/mp4");
-    return {
-      success: true,
-      outputUrl: base64,
-      mimeType: "video/mp4",
-      isVideo: true,
-      message: `✅ Video di-resize ke ${width}x${height} (max ${dur.toFixed(0)}s)!`,
-    };
-  } catch (err: any) {
-    return { success: false, error: `Video resize gagal: ${err.message}` };
-  } finally {
-    await fs.unlink(inputPath).catch(() => {});
-    await fs.unlink(outputPath).catch(() => {});
-  }
-}
-
-// ─── Video Watermark via FFmpeg (max 30s) ────────────────────────────────────
-
-export async function videoWatermarkFFmpeg(videoUrl: string, text = "EditAI"): Promise<VideoResult> {
-  const inputPath = await bufferToTempFile(await fetchBuffer(videoUrl), "mp4");
-  const outputPath = path.join(os.tmpdir(), `editai_wm_${Date.now()}.mp4`);
-
-  try {
-    const dur = await getVideoDuration(inputPath);
-    const safeText = text.replace(/'/g, "\\'").replace(/:/g, "\\:");
-    await runFfmpeg([
-      "-y", "-i", `"${inputPath}"`,
-      "-t", String(dur),
-      "-vf", `drawtext=text='${safeText}':fontsize=36:fontcolor=white@0.75:x=w-tw-20:y=h-th-20:shadowcolor=black@0.6:shadowx=2:shadowy=2`,
-      "-c:v", "libx264",
-      "-crf", "18",
-      "-preset", "fast",
-      "-movflags", "+faststart",
-      "-c:a", "aac", "-b:a", "192k",
-      `"${outputPath}"`,
-    ]);
-
-    const base64 = await fileToBase64(outputPath, "video/mp4");
-    return {
-      success: true,
-      outputUrl: base64,
-      mimeType: "video/mp4",
-      isVideo: true,
-      message: `✅ Watermark ditambahkan (max ${dur.toFixed(0)}s)!`,
-    };
-  } catch (err: any) {
-    return { success: false, error: `Video watermark gagal: ${err.message}` };
-  } finally {
-    await fs.unlink(inputPath).catch(() => {});
-    await fs.unlink(outputPath).catch(() => {});
-  }
-}
-
-// ─── Video Noise Reduction via FFmpeg (max 30s) ──────────────────────────────
-
-export async function videoNoiseReductionFFmpeg(videoUrl: string): Promise<VideoResult> {
-  const inputPath = await bufferToTempFile(await fetchBuffer(videoUrl), "mp4");
-  const outputPath = path.join(os.tmpdir(), `editai_denoise_${Date.now()}.mp4`);
-
-  try {
-    const dur = await getVideoDuration(inputPath);
-    await runFfmpeg([
-      "-y", "-i", `"${inputPath}"`,
-      "-t", String(dur),
-      // nlmeans lebih halus dari hqdn3d, tidak blur
-      "-vf", "nlmeans=s=3:p=3:pc=3:r=5,unsharp=3:3:0.8",
-      "-c:v", "libx264",
-      "-crf", "17",
-      "-preset", "slow",
-      "-movflags", "+faststart",
-      "-c:a", "aac", "-b:a", "192k",
-      `"${outputPath}"`,
-    ]);
-
-    const base64 = await fileToBase64(outputPath, "video/mp4");
-    return {
-      success: true,
-      outputUrl: base64,
-      mimeType: "video/mp4",
-      isVideo: true,
-      message: `✅ Noise video dikurangi (kualitas crystal clear, max ${dur.toFixed(0)}s)!`,
-    };
-  } catch (err: any) {
-    return { success: false, error: `Noise reduction gagal: ${err.message}` };
-  } finally {
-    await fs.unlink(inputPath).catch(() => {});
-    await fs.unlink(outputPath).catch(() => {});
-  }
-}
-
-// ─── Photo to Video via FFmpeg (Ken Burns, 30s, kualitas sinematik) ───────────
+// ─── Photo to Video (Ken Burns) ───────────────────────────────────────────────
+// Durasi 15 detik, 720p, preset medium untuk kecepatan reasonable
 
 export async function photoToVideoFFmpeg(
   imageUrl: string,
   type: "cinematic" | "zoom" | "pan"
 ): Promise<VideoResult> {
   const buf = await fetchBuffer(imageUrl);
-  const inputPath = await bufferToTempFile(buf, "jpg");
-  const outputPath = path.join(os.tmpdir(), `editai_p2v_${Date.now()}.mp4`);
 
-  // Pre-upscale gambar 3x agar tidak blur saat zoom animasi
-  let preparedPath = inputPath;
+  // Pre-upscale supaya tidak blur saat zoom
+  let inputBuf = buf;
   try {
     const sharp = (await import("sharp")).default;
     const meta = await sharp(buf).metadata();
-    const targetW = Math.max(meta.width ?? 1920, 2560);
-    const targetH = Math.max(meta.height ?? 1080, 1440);
-    const upBuf = await sharp(buf)
-      .resize(targetW, targetH, { kernel: sharp.kernel.lanczos3, fit: "inside" })
-      .sharpen({ sigma: 0.8 })
-      .jpeg({ quality: 98 })
+    const w = Math.max(meta.width ?? 1280, 1920);
+    const h = Math.max(meta.height ?? 720, 1080);
+    inputBuf = await sharp(buf)
+      .resize(w, h, { kernel: sharp.kernel.lanczos3, fit: "inside" })
+      .sharpen({ sigma: 0.5 })
+      .jpeg({ quality: 95 })
       .toBuffer();
-    preparedPath = await bufferToTempFile(upBuf, "jpg");
-  } catch {}
+  } catch { /* pakai original */ }
+
+  const inputPath = await bufferToTempFile(inputBuf, "jpg");
+  const outputPath = path.join(os.tmpdir(), `editai_p2v_${Date.now()}.mp4`);
 
   try {
-    const durSec = MAX_DURATION_SEC; // selalu 30 detik
-    const fps = 30;
-    const totalFrames = durSec * fps;
+    const durSec = 15;
+    const fps    = 25;
+    const frames = durSec * fps;  // 375 frames
 
-    // Filter Ken Burns per type — output 1920x1080, 30fps, 30 detik
-    const filters: Record<string, string> = {
-      // Cinematic: zoom in perlahan dari 1.0 → 1.4
-      cinematic: `zoompan=z='if(lte(zoom,1.0),1.0,min(zoom+0.0013,1.4))':d=${totalFrames}:x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':s=1920x1080:fps=${fps}`,
-      // Zoom: zoom in terus sampai 1.6
-      zoom: `zoompan=z='min(zoom+0.0015,1.6)':d=${totalFrames}:x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':s=1920x1080:fps=${fps}`,
-      // Pan: geser dari kiri ke kanan dengan zoom 1.2
-      pan: `zoompan=z='1.2':d=${totalFrames}:x='if(lte(on,1),0,min(x+iw/zoom/${totalFrames}*0.5,iw-iw/zoom))':y='ih/2-(ih/zoom/2)':s=1920x1080:fps=${fps}`,
+    // Filter per type — skala ke 1280x720 dulu, lalu zoompan
+    // PENTING: zoom harus mulai dari 1.0 dan increment per frame
+    const zoomFilters: Record<string, string> = {
+      // Zoom in perlahan: 1.0 → 1.3 selama 375 frame
+      cinematic: [
+        "scale=iw*2:ih*2:flags=lanczos",
+        `zoompan=z='min(zoom+0.0008,1.3)':d=${frames}:x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':s=1280x720:fps=${fps}`,
+        "unsharp=3:3:0.8",
+      ].join(","),
+
+      // Zoom in lebih cepat: 1.0 → 1.5
+      zoom: [
+        "scale=iw*2:ih*2:flags=lanczos",
+        `zoompan=z='min(zoom+0.0013,1.5)':d=${frames}:x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':s=1280x720:fps=${fps}`,
+        "unsharp=3:3:0.8",
+      ].join(","),
+
+      // Pan dari kiri ke kanan, zoom tetap 1.2
+      pan: [
+        "scale=iw*2:ih*2:flags=lanczos",
+        `zoompan=z='1.2':d=${frames}:x='min(x+iw/zoom/${frames}*0.4,iw-iw/zoom)':y='ih/2-(ih/zoom/2)':s=1280x720:fps=${fps}`,
+        "unsharp=3:3:0.8",
+      ].join(","),
     };
 
-    await runFfmpeg([
+    // ⚠️ PENTING: -f lavfi -i anullsrc HARUS sebelum -vf
+    await runFF([
       "-y",
       "-loop", "1",
-      "-framerate", String(fps),
-      "-i", `"${preparedPath}"`,
-      "-vf", filters[type],
-      "-t", String(durSec),
+      "-i", `"${inputPath}"`,
+      "-f", "lavfi", "-i", "anullsrc=channel_layout=stereo:sample_rate=44100",
+      "-vf", `"${zoomFilters[type]}"`,
       "-c:v", "libx264",
-      // CRF 16 = kualitas tinggi, terlihat jernih di semua resolusi
-      "-crf", "16",
-      "-preset", "slow",
+      "-crf", "22",
+      "-preset", "medium",
       "-profile:v", "high",
-      "-level", "4.2",
       "-pix_fmt", "yuv420p",
       "-movflags", "+faststart",
-      // Tambah audio diam agar kompatibel dengan semua player
-      "-f", "lavfi", "-i", "anullsrc=channel_layout=stereo:sample_rate=44100",
-      "-c:a", "aac", "-b:a", "128k", "-shortest",
+      "-c:a", "aac", "-b:a", "128k",
+      "-t", String(durSec),
+      "-shortest",
       `"${outputPath}"`,
-    ], 240000);
+    ], 180000);
 
-    const base64 = await fileToBase64(outputPath, "video/mp4");
+    const base64 = await toBase64(outputPath, "video/mp4");
+    const typeLabel = { cinematic: "Sinematik", zoom: "Zoom In", pan: "Pan" }[type];
     return {
       success: true,
       outputUrl: base64,
       mimeType: "video/mp4",
       isVideo: true,
-      message: `✅ Video ${type} 30 detik (1080p, 30fps) berhasil dibuat dari foto!`,
+      message: `Video ${typeLabel} ${durSec}s (720p, 25fps) berhasil dibuat!`,
     };
   } catch (err: any) {
-    logger.error({ err }, "Photo to video FFmpeg gagal");
-    return { success: false, error: `Photo to video gagal: ${err.message}` };
+    logger.error({ err }, "Photo-to-video gagal");
+    return { success: false, error: `Photo to video gagal: ${err.message?.slice(0, 100)}` };
   } finally {
-    await Promise.all([
-      fs.unlink(inputPath).catch(() => {}),
-      preparedPath !== inputPath ? fs.unlink(preparedPath).catch(() => {}) : Promise.resolve(),
-      fs.unlink(outputPath).catch(() => {}),
+    await cleanup(inputPath, outputPath);
+  }
+}
+
+// ─── Video Enhance ────────────────────────────────────────────────────────────
+
+export async function videoEnhanceFFmpeg(videoUrl: string): Promise<VideoResult> {
+  const inputPath = await bufferToTempFile(await fetchBuffer(videoUrl), "mp4");
+  const outputPath = path.join(os.tmpdir(), `editai_enhance_${Date.now()}.mp4`);
+
+  try {
+    const dur = await getDuration(inputPath);
+    const filter = [
+      "hqdn3d=2:1.5:3:2.5",                              // denoise halus
+      "unsharp=5:5:1.5:3:3:0.5",                         // sharpen
+      "eq=contrast=1.08:saturation=1.2:brightness=0.02", // color boost
+      "scale=iw:ih:flags=lanczos",
+    ].join(",");
+
+    await runFF([
+      "-y", "-i", `"${inputPath}"`,
+      "-t", String(dur),
+      "-vf", `"${filter}"`,
+      "-c:v", "libx264", "-crf", "18", "-preset", "medium",
+      "-profile:v", "high", "-movflags", "+faststart",
+      "-c:a", "aac", "-b:a", "192k",
+      `"${outputPath}"`,
+    ], 180000);
+
+    const base64 = await toBase64(outputPath, "video/mp4");
+    return { success: true, outputUrl: base64, mimeType: "video/mp4", isVideo: true, message: `Video lebih jernih, tajam & warna hidup (${dur.toFixed(0)}s)!` };
+  } catch (err: any) {
+    return { success: false, error: `Video enhance gagal: ${err.message?.slice(0, 80)}` };
+  } finally {
+    await cleanup(inputPath, outputPath);
+  }
+}
+
+// ─── Video Upscale ────────────────────────────────────────────────────────────
+
+export async function videoUpscaleFFmpeg(videoUrl: string): Promise<VideoResult> {
+  const inputPath = await bufferToTempFile(await fetchBuffer(videoUrl), "mp4");
+  const outputPath = path.join(os.tmpdir(), `editai_upscale_${Date.now()}.mp4`);
+
+  try {
+    const dur = await getDuration(inputPath);
+    await runFF([
+      "-y", "-i", `"${inputPath}"`,
+      "-t", String(dur),
+      "-vf", `"scale=iw*2:ih*2:flags=lanczos,unsharp=5:5:1.5:5:5:0.0"`,
+      "-c:v", "libx264", "-crf", "16", "-preset", "medium",
+      "-profile:v", "high", "-movflags", "+faststart",
+      "-c:a", "aac", "-b:a", "192k",
+      `"${outputPath}"`,
+    ], 180000);
+
+    const base64 = await toBase64(outputPath, "video/mp4");
+    return { success: true, outputUrl: base64, mimeType: "video/mp4", isVideo: true, message: `Video di-upscale 2x resolusi (${dur.toFixed(0)}s)!` };
+  } catch (err: any) {
+    return { success: false, error: `Video upscale gagal: ${err.message?.slice(0, 80)}` };
+  } finally {
+    await cleanup(inputPath, outputPath);
+  }
+}
+
+// ─── Video Stabilize ──────────────────────────────────────────────────────────
+
+export async function videoStabilizeFFmpeg(videoUrl: string): Promise<VideoResult> {
+  const inputPath = await bufferToTempFile(await fetchBuffer(videoUrl), "mp4");
+  const stabPath  = path.join(os.tmpdir(), `editai_stab_${Date.now()}.trf`);
+  const outputPath = path.join(os.tmpdir(), `editai_stable_${Date.now()}.mp4`);
+
+  try {
+    const dur = await getDuration(inputPath);
+
+    await runFF([
+      "-y", "-i", `"${inputPath}"`, "-t", String(dur),
+      "-vf", `"vidstabdetect=shakiness=10:accuracy=15:result='${stabPath}'"`,
+      "-f", "null", "-",
     ]);
+
+    await runFF([
+      "-y", "-i", `"${inputPath}"`, "-t", String(dur),
+      "-vf", `"vidstabtransform=input='${stabPath}':zoom=1:smoothing=20,unsharp=5:5:1.0"`,
+      "-c:v", "libx264", "-crf", "18", "-preset", "medium",
+      "-movflags", "+faststart", "-c:a", "aac", "-b:a", "192k",
+      `"${outputPath}"`,
+    ]);
+
+    const base64 = await toBase64(outputPath, "video/mp4");
+    return { success: true, outputUrl: base64, mimeType: "video/mp4", isVideo: true, message: `Video distabilkan (${dur.toFixed(0)}s)!` };
+  } catch (err: any) {
+    return { success: false, error: `Video stabilize gagal: ${err.message?.slice(0, 80)}` };
+  } finally {
+    await cleanup(inputPath, stabPath, outputPath);
+  }
+}
+
+// ─── Video Resize ─────────────────────────────────────────────────────────────
+
+export async function videoResizeFFmpeg(videoUrl: string, width = 1280, height = 720): Promise<VideoResult> {
+  const inputPath  = await bufferToTempFile(await fetchBuffer(videoUrl), "mp4");
+  const outputPath = path.join(os.tmpdir(), `editai_resize_${Date.now()}.mp4`);
+
+  try {
+    const dur = await getDuration(inputPath);
+    await runFF([
+      "-y", "-i", `"${inputPath}"`, "-t", String(dur),
+      "-vf", `"scale=${width}:${height}:force_original_aspect_ratio=decrease:flags=lanczos,pad=${width}:${height}:(ow-iw)/2:(oh-ih)/2"`,
+      "-c:v", "libx264", "-crf", "18", "-preset", "medium",
+      "-movflags", "+faststart", "-c:a", "aac", "-b:a", "192k",
+      `"${outputPath}"`,
+    ]);
+
+    const base64 = await toBase64(outputPath, "video/mp4");
+    return { success: true, outputUrl: base64, mimeType: "video/mp4", isVideo: true, message: `Video di-resize ke ${width}x${height} (${dur.toFixed(0)}s)!` };
+  } catch (err: any) {
+    return { success: false, error: `Video resize gagal: ${err.message?.slice(0, 80)}` };
+  } finally {
+    await cleanup(inputPath, outputPath);
+  }
+}
+
+// ─── Video Watermark ──────────────────────────────────────────────────────────
+
+export async function videoWatermarkFFmpeg(videoUrl: string, text = "EditAI"): Promise<VideoResult> {
+  const inputPath  = await bufferToTempFile(await fetchBuffer(videoUrl), "mp4");
+  const outputPath = path.join(os.tmpdir(), `editai_wm_${Date.now()}.mp4`);
+
+  try {
+    const dur      = await getDuration(inputPath);
+    const safeText = text.replace(/'/g, "\\'").replace(/:/g, "\\:").replace(/\\/g, "\\\\");
+    await runFF([
+      "-y", "-i", `"${inputPath}"`, "-t", String(dur),
+      "-vf", `"drawtext=text='${safeText}':fontsize=36:fontcolor=white@0.8:x=w-tw-20:y=h-th-20:shadowcolor=black@0.6:shadowx=2:shadowy=2"`,
+      "-c:v", "libx264", "-crf", "18", "-preset", "fast",
+      "-movflags", "+faststart", "-c:a", "aac", "-b:a", "192k",
+      `"${outputPath}"`,
+    ]);
+
+    const base64 = await toBase64(outputPath, "video/mp4");
+    return { success: true, outputUrl: base64, mimeType: "video/mp4", isVideo: true, message: `Watermark ditambahkan (${dur.toFixed(0)}s)!` };
+  } catch (err: any) {
+    return { success: false, error: `Watermark gagal: ${err.message?.slice(0, 80)}` };
+  } finally {
+    await cleanup(inputPath, outputPath);
+  }
+}
+
+// ─── Video Noise Reduction ────────────────────────────────────────────────────
+
+export async function videoNoiseReductionFFmpeg(videoUrl: string): Promise<VideoResult> {
+  const inputPath  = await bufferToTempFile(await fetchBuffer(videoUrl), "mp4");
+  const outputPath = path.join(os.tmpdir(), `editai_denoise_${Date.now()}.mp4`);
+
+  try {
+    const dur = await getDuration(inputPath);
+    await runFF([
+      "-y", "-i", `"${inputPath}"`, "-t", String(dur),
+      "-vf", `"hqdn3d=4:3:6:4.5,unsharp=3:3:0.8"`,
+      "-c:v", "libx264", "-crf", "17", "-preset", "medium",
+      "-movflags", "+faststart", "-c:a", "aac", "-b:a", "192k",
+      `"${outputPath}"`,
+    ]);
+
+    const base64 = await toBase64(outputPath, "video/mp4");
+    return { success: true, outputUrl: base64, mimeType: "video/mp4", isVideo: true, message: `Noise video dikurangi (${dur.toFixed(0)}s)!` };
+  } catch (err: any) {
+    return { success: false, error: `Noise reduction gagal: ${err.message?.slice(0, 80)}` };
+  } finally {
+    await cleanup(inputPath, outputPath);
   }
 }

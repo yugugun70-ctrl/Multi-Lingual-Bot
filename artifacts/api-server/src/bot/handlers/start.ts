@@ -2,6 +2,10 @@ import type { Context } from "grammy";
 import { InlineKeyboard } from "grammy";
 import { getOrCreateUser, NEW_USER_CREDITS, PHOTO_EDIT_COST, VIDEO_EDIT_COST, TOPUP_AMOUNT_IDR, TOPUP_CREDITS } from "../credits";
 
+function escHtml(s: string): string {
+  return String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+}
+
 // ─── Menu utama ───────────────────────────────────────────────────────────────
 export function mainInlineKeyboard(): InlineKeyboard {
   return new InlineKeyboard()
@@ -12,16 +16,30 @@ export function mainInlineKeyboard(): InlineKeyboard {
     .text("💳 Top Up Kredit", "menu:topup");
 }
 
-// ─── Submenu Edit Foto ────────────────────────────────────────────────────────
+// ─── Submenu Edit Foto (halaman 1: dasar) ─────────────────────────────────────
 export function editFotoKeyboard(): InlineKeyboard {
   return new InlineKeyboard()
     .text("🔲 Hapus Background", "edit:remove_background").text("🔍 Perjelas 3x", "edit:upscale_photo")
     .row()
     .text("✨ Perbaiki Kualitas", "edit:enhance_photo").text("🎨 Efek Anime", "edit:anime_effect")
     .row()
-    .text("🎭 Efek Kartun", "edit:cartoon_effect").text("🖌️ Koreksi Warna", "edit:color_correction")
+    .text("🎭 Efek Kartun", "edit:cartoon_effect").text("🌈 Koreksi Warna", "edit:color_correction")
     .row()
-    .text("◀️ Kembali ke Menu", "menu:back");
+    .text("🔮 Efek Trending ▶", "menu:edit_trendy")
+    .row()
+    .text("◀️ Menu Utama", "menu:back");
+}
+
+// ─── Submenu Edit Foto (halaman 2: trending effects) ──────────────────────────
+export function editFotoTrendyKeyboard(): InlineKeyboard {
+  return new InlineKeyboard()
+    .text("🌟 Efek HDR", "edit:hdr_effect").text("✨ Efek Glow", "edit:glow_effect")
+    .row()
+    .text("✏️ Efek Sketsa", "edit:sketch_effect").text("💜 Efek Neon", "edit:neon_effect")
+    .row()
+    .text("🖌️ Lukis Minyak", "edit:oil_paint_effect").text("📽️ Efek Vintage", "edit:vintage_effect")
+    .row()
+    .text("◀️ Edit Foto Dasar", "menu:edit_foto");
 }
 
 // ─── Submenu Foto → Video ─────────────────────────────────────────────────────
@@ -33,24 +51,24 @@ export function fotoVideoKeyboard(): InlineKeyboard {
     .row()
     .text("↔️ Efek Pan", "edit:photo_to_video_pan")
     .row()
-    .text("◀️ Kembali ke Menu", "menu:back");
+    .text("◀️ Menu Utama", "menu:back");
 }
 
 export function getTopUpText(): string {
   return (
-    `💳 *Top Up Kredit EditAI*\n\n` +
-    `💰 *Harga:* Rp ${TOPUP_AMOUNT_IDR.toLocaleString("id-ID")} → *${TOPUP_CREDITS} kredit*\n\n` +
-    `*Tarif penggunaan:*\n` +
-    `📷 Edit Foto → *${PHOTO_EDIT_COST} kredit*\n` +
-    `🎞️ Foto/Video → *${VIDEO_EDIT_COST} kredit*\n` +
-    `💬 Chat AI → *GRATIS*\n\n` +
-    `*Cara Top Up:*\n` +
+    `<b>💳 Top Up Kredit EditAI</b>\n\n` +
+    `💰 <b>Harga:</b> Rp ${TOPUP_AMOUNT_IDR.toLocaleString("id-ID")} → <b>${TOPUP_CREDITS} kredit</b>\n\n` +
+    `<b>Tarif penggunaan:</b>\n` +
+    `📷 Edit Foto → <b>${PHOTO_EDIT_COST} kredit</b>\n` +
+    `🎞️ Foto/Video → <b>${VIDEO_EDIT_COST} kredit</b>\n` +
+    `💬 Chat AI → <b>GRATIS</b>\n\n` +
+    `<b>Cara Top Up:</b>\n` +
     `1. Transfer ke salah satu rekening di bawah\n` +
     `2. Kirim screenshot bukti transfer ke chat ini\n` +
-    `3. Admin akan menambahkan kredit dalam 1×24 jam\n\n` +
-    `🏦 *Bank BNI:* \`1939716011\`\n` +
-    `📱 *GoPay:* \`085641452357\`\n\n` +
-    `_Setelah transfer, kirim foto/screenshot bukti ke chat ini._`
+    `3. Admin menambahkan kredit dalam 1×24 jam\n\n` +
+    `🏦 <b>Bank BNI:</b> <code>1939716011</code>\n` +
+    `📱 <b>GoPay:</b> <code>085641452357</code>\n\n` +
+    `<i>Setelah transfer, kirim foto/screenshot bukti ke chat ini.</i>`
   );
 }
 
@@ -58,16 +76,19 @@ export async function handleStart(ctx: Context): Promise<void> {
   const telegramId = ctx.from?.id;
   if (!telegramId) return;
 
-  const user = await getOrCreateUser(telegramId, ctx.from?.username, ctx.from?.first_name);
-  const name = user.firstName || user.username || "kamu";
-  const isNew = (Date.now() - new Date(user.registerDate).getTime()) < 10000;
+  const user  = await getOrCreateUser(telegramId, ctx.from?.username, ctx.from?.first_name);
+  const name  = escHtml(user.firstName || user.username || "kamu");
+  const isNew = (Date.now() - new Date(user.registerDate).getTime()) < 10_000;
 
   await ctx.reply(
-    `Hei *${name}*! 👋 ${isNew ? `Selamat datang di *EditAI*!\n\nKamu dapat *${NEW_USER_CREDITS} kredit gratis* untuk memulai. 🎉` : "Selamat datang kembali!"}\n\n` +
-    `Saya asisten AI untuk *edit foto & video*.\n\n` +
-    `💳 Kredit kamu: *${user.credits} kredit*\n` +
-    `📷 Edit Foto = *${PHOTO_EDIT_COST} kredit* | 🎞️ Video = *${VIDEO_EDIT_COST} kredit*\n\n` +
+    `Hei <b>${name}</b>! 👋 ` +
+    (isNew
+      ? `Selamat datang di <b>EditAI</b>!\n\nKamu dapat <b>${NEW_USER_CREDITS} kredit gratis</b> untuk memulai! 🎉`
+      : "Selamat datang kembali!") +
+    `\n\nSaya asisten AI untuk <b>edit foto &amp; video</b>.\n\n` +
+    `💳 Kredit kamu: <b>${user.credits} kredit</b>\n` +
+    `📷 Edit Foto = <b>${PHOTO_EDIT_COST} kredit</b> | 🎞️ Video = <b>${VIDEO_EDIT_COST} kredit</b>\n\n` +
     `Pilih layanan 👇`,
-    { parse_mode: "Markdown", reply_markup: mainInlineKeyboard() }
+    { parse_mode: "HTML", reply_markup: mainInlineKeyboard() }
   );
 }
