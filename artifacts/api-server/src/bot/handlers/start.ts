@@ -1,45 +1,71 @@
 import type { Context } from "grammy";
 import { InlineKeyboard } from "grammy";
-import { getOrCreateUser, NEW_USER_CREDITS, PHOTO_EDIT_COST, VIDEO_EDIT_COST, TOPUP_AMOUNT_IDR, TOPUP_CREDITS } from "../credits";
+import { getOrCreateUser, NEW_USER_CREDITS, VIDEO_EDIT_COST, TOPUP_AMOUNT_IDR, TOPUP_CREDITS } from "../credits";
 
 function escHtml(s: string): string {
   return String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 }
 
-// ─── Menu utama ───────────────────────────────────────────────────────────────
+// ─── Menu Utama (Video Only) ──────────────────────────────────────────────────
 export function mainInlineKeyboard(): InlineKeyboard {
   return new InlineKeyboard()
-    .text("📷 Edit Foto", "menu:edit_foto").text("🎞️ Foto → Video", "menu:foto_video")
+    .text("✨ Jernihkan Video", "menu:jernihkan").text("📐 Kualitas Video", "menu:kualitas")
     .row()
-    .text("🖼️ Teks → Foto", "menu:teks_foto").text("✨ Jernihkan Video", "menu:jernihkan")
+    .text("🎞️ Efek Video", "menu:efek").text("📏 Rasio Video", "menu:rasio")
+    .row()
+    .text("💬 Tambah Subtitle", "menu:subtitle")
+    .row()
+    .text("🎬 Foto → Video", "menu:foto_video")
     .row()
     .text("💳 Top Up Kredit", "menu:topup");
 }
 
-// ─── Submenu Edit Foto (halaman 1: dasar) ─────────────────────────────────────
-export function editFotoKeyboard(): InlineKeyboard {
+// ─── Submenu Kualitas ─────────────────────────────────────────────────────────
+export function kualitasKeyboard(): InlineKeyboard {
   return new InlineKeyboard()
-    .text("🔲 Hapus Background", "edit:remove_background").text("🔍 Perjelas 3x", "edit:upscale_photo")
+    .text("📺 HD (720p)", "edit:video_quality_hd")
     .row()
-    .text("✨ Perbaiki Kualitas", "edit:enhance_photo").text("🎨 Efek Anime", "edit:anime_effect")
+    .text("🖥️ Full HD (1080p)", "edit:video_quality_fhd")
     .row()
-    .text("🎭 Efek Kartun", "edit:cartoon_effect").text("🌈 Koreksi Warna", "edit:color_correction")
-    .row()
-    .text("🔮 Efek Trending ▶", "menu:edit_trendy")
+    .text("🔮 4K (2160p)", "edit:video_quality_4k")
     .row()
     .text("◀️ Menu Utama", "menu:back");
 }
 
-// ─── Submenu Edit Foto (halaman 2: trending effects) ──────────────────────────
-export function editFotoTrendyKeyboard(): InlineKeyboard {
+// ─── Submenu Efek Video ───────────────────────────────────────────────────────
+export function efekVideoKeyboard(): InlineKeyboard {
   return new InlineKeyboard()
-    .text("🌟 Efek HDR", "edit:hdr_effect").text("✨ Efek Glow", "edit:glow_effect")
+    .text("🎬 Sinematik", "edit:video_effect_cinematic").text("⬛ Hitam & Putih", "edit:video_effect_bw")
     .row()
-    .text("✏️ Efek Sketsa", "edit:sketch_effect").text("💜 Efek Neon", "edit:neon_effect")
+    .text("📽️ Vintage/Retro", "edit:video_effect_vintage").text("🎭 Drama", "edit:video_effect_drama")
     .row()
-    .text("🖌️ Lukis Minyak", "edit:oil_paint_effect").text("📽️ Efek Vintage", "edit:vintage_effect")
+    .text("💥 Vivid/Cerah", "edit:video_effect_vivid")
     .row()
-    .text("◀️ Edit Foto Dasar", "menu:edit_foto");
+    .text("◀️ Menu Utama", "menu:back");
+}
+
+// ─── Submenu Rasio Video ──────────────────────────────────────────────────────
+export function rasioVideoKeyboard(): InlineKeyboard {
+  return new InlineKeyboard()
+    .text("▬ 16:9 Landscape", "edit:video_ratio_16_9").text("▮ 9:16 Reels", "edit:video_ratio_9_16")
+    .row()
+    .text("■ 1:1 Square", "edit:video_ratio_1_1").text("▭ 4:3 Klasik", "edit:video_ratio_4_3")
+    .row()
+    .text("▬▬ 21:9 Sinema", "edit:video_ratio_21_9")
+    .row()
+    .text("◀️ Menu Utama", "menu:back");
+}
+
+// ─── Submenu Posisi Subtitle ──────────────────────────────────────────────────
+export function subtitlePosKeyboard(): InlineKeyboard {
+  return new InlineKeyboard()
+    .text("⬆️ Teks di Atas", "subtitle_pos:top")
+    .row()
+    .text("↕️ Teks di Tengah", "subtitle_pos:middle")
+    .row()
+    .text("⬇️ Teks di Bawah", "subtitle_pos:bottom")
+    .row()
+    .text("◀️ Menu Utama", "menu:back");
 }
 
 // ─── Submenu Foto → Video ─────────────────────────────────────────────────────
@@ -54,13 +80,13 @@ export function fotoVideoKeyboard(): InlineKeyboard {
     .text("◀️ Menu Utama", "menu:back");
 }
 
+// ─── Teks Top Up ──────────────────────────────────────────────────────────────
 export function getTopUpText(): string {
   return (
     `<b>💳 Top Up Kredit EditAI</b>\n\n` +
     `💰 <b>Harga:</b> Rp ${TOPUP_AMOUNT_IDR.toLocaleString("id-ID")} → <b>${TOPUP_CREDITS} kredit</b>\n\n` +
     `<b>Tarif penggunaan:</b>\n` +
-    `📷 Edit Foto → <b>${PHOTO_EDIT_COST} kredit</b>\n` +
-    `🎞️ Foto/Video → <b>${VIDEO_EDIT_COST} kredit</b>\n` +
+    `🎞️ Semua fitur video → <b>${VIDEO_EDIT_COST} kredit</b>\n` +
     `💬 Chat AI → <b>GRATIS</b>\n\n` +
     `<b>Cara Top Up:</b>\n` +
     `1. Transfer ke salah satu rekening di bawah\n` +
@@ -72,6 +98,7 @@ export function getTopUpText(): string {
   );
 }
 
+// ─── Handler /start ───────────────────────────────────────────────────────────
 export async function handleStart(ctx: Context): Promise<void> {
   const telegramId = ctx.from?.id;
   if (!telegramId) return;
@@ -85,9 +112,9 @@ export async function handleStart(ctx: Context): Promise<void> {
     (isNew
       ? `Selamat datang di <b>EditAI</b>!\n\nKamu dapat <b>${NEW_USER_CREDITS} kredit gratis</b> untuk memulai! 🎉`
       : "Selamat datang kembali!") +
-    `\n\nSaya asisten AI untuk <b>edit foto &amp; video</b>.\n\n` +
+    `\n\nSaya asisten AI untuk <b>edit video</b> profesional.\n\n` +
     `💳 Kredit kamu: <b>${user.credits} kredit</b>\n` +
-    `📷 Edit Foto = <b>${PHOTO_EDIT_COST} kredit</b> | 🎞️ Video = <b>${VIDEO_EDIT_COST} kredit</b>\n\n` +
+    `🎞️ Semua fitur video = <b>${VIDEO_EDIT_COST} kredit</b> per proses\n\n` +
     `Pilih layanan 👇`,
     { parse_mode: "HTML", reply_markup: mainInlineKeyboard() }
   );

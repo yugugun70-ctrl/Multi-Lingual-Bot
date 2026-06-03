@@ -1,34 +1,27 @@
 export type EditAction =
-  | "remove_background"
-  | "upscale_photo"
-  | "enhance_photo"
-  | "anime_effect"
-  | "cartoon_effect"
-  | "hdr_effect"
-  | "glow_effect"
-  | "sketch_effect"
-  | "neon_effect"
-  | "oil_paint_effect"
-  | "vintage_effect"
-  | "portrait_enhance"
-  | "color_correction"
-  | "remove_object"
-  | "style_transfer"
-  | "photo_to_video_cinematic"
-  | "photo_to_video_zoom"
-  | "photo_to_video_pan"
-  | "image_to_video"
-  | "text_to_video"
-  | "video_upscale"
   | "video_enhance"
   | "video_stabilize"
-  | "video_subtitle"
-  | "video_caption"
-  | "video_resize"
+  | "video_noise_reduction"
   | "video_watermark"
-  | "video_noise_reduction";
+  | "video_quality_hd"
+  | "video_quality_fhd"
+  | "video_quality_4k"
+  | "video_subtitle"
+  | "video_effect_cinematic"
+  | "video_effect_bw"
+  | "video_effect_vintage"
+  | "video_effect_drama"
+  | "video_effect_vivid"
+  | "video_ratio_16_9"
+  | "video_ratio_9_16"
+  | "video_ratio_1_1"
+  | "video_ratio_4_3"
+  | "video_ratio_21_9"
+  | "photo_to_video_cinematic"
+  | "photo_to_video_zoom"
+  | "photo_to_video_pan";
 
-export type MenuMode = 1 | 2 | 3 | 4 | 5 | null;
+export type MenuMode = "main" | "kualitas" | "efek" | "rasio" | "foto_video" | "subtitle_pos" | null;
 
 export interface UserState {
   pending: null;
@@ -39,6 +32,8 @@ export interface UserState {
   lastVideoFileId: string | null;
   lastVideoFileUrl: string | null;
   awaitingPaymentProof: boolean;
+  awaitingSubtitleText: boolean;
+  subtitlePosition: "top" | "middle" | "bottom";
 }
 
 const userStates = new Map<number, UserState>();
@@ -54,6 +49,8 @@ export function getUserState(telegramId: number): UserState {
       lastVideoFileId: null,
       lastVideoFileUrl: null,
       awaitingPaymentProof: false,
+      awaitingSubtitleText: false,
+      subtitlePosition: "bottom",
     });
   }
   return userStates.get(telegramId)!;
@@ -65,5 +62,9 @@ export function setUserState(telegramId: number, state: Partial<UserState>): voi
 }
 
 export function clearPending(telegramId: number): void {
-  setUserState(telegramId, { pendingAction: null });
+  setUserState(telegramId, {
+    pendingAction: null,
+    awaitingSubtitleText: false,
+    subtitlePosition: "bottom",
+  });
 }

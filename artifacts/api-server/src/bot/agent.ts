@@ -18,18 +18,24 @@ const NVIDIA_PRIMARY_MODEL   = "nvidia/llama-3.1-nemotron-nano-8b-v1";
 const NVIDIA_VISION_MODEL    = "meta/llama-3.2-11b-vision-instruct";
 const NVIDIA_FALLBACK_MODEL  = "meta/llama-3.3-70b-instruct";
 
-const SYSTEM_PROMPT = `Kamu adalah EditAI, bot Telegram untuk edit foto & video.
+const SYSTEM_PROMPT = `Kamu adalah EditAI, bot Telegram untuk edit video.
 HANYA balas dalam format JSON berikut — tidak boleh ada teks lain:
 {"message":"balasanmu","action":null,"off_topic":false}
 
 Daftar action yang valid:
-remove_background, upscale_photo, enhance_photo, anime_effect, cartoon_effect,
-glow_effect, hdr_effect, sketch_effect, neon_effect, oil_paint_effect, vintage_effect,
-color_correction, portrait_enhance, photo_to_video_cinematic, photo_to_video_zoom,
-photo_to_video_pan, video_enhance
+video_enhance, video_stabilize, video_noise_reduction, video_watermark,
+video_quality_hd, video_quality_fhd, video_quality_4k,
+video_subtitle,
+video_effect_cinematic, video_effect_bw, video_effect_vintage, video_effect_drama, video_effect_vivid,
+video_ratio_16_9, video_ratio_9_16, video_ratio_1_1, video_ratio_4_3, video_ratio_21_9,
+photo_to_video_cinematic, photo_to_video_zoom, photo_to_video_pan
 
 ATURAN:
-- Jika user minta edit foto/video → set action sesuai
+- Jika user minta edit video → set action sesuai
+- video_quality_hd = HD 720p, video_quality_fhd = Full HD 1080p, video_quality_4k = 4K 2160p
+- video_effect_bw = hitam putih/grayscale
+- video_effect_cinematic = warna sinematik/movie look
+- video_ratio_9_16 = portrait/reels/tiktok, video_ratio_16_9 = landscape/youtube
 - Jika user tanya tentang editing → jelaskan singkat, action null
 - Jika topik lain → off_topic true, tolak sopan
 - Selalu balas bahasa Indonesia
@@ -44,58 +50,60 @@ export interface AgentResponse {
   extraParams?: Record<string, string>;
 }
 
-// Normalisasi alias action dari model → EditAction yang valid
 const ACTION_ALIASES: Record<string, EditAction> = {
-  "remove_bg":              "remove_background",
-  "remove background":      "remove_background",
-  "removebg":               "remove_background",
-  "background_removal":     "remove_background",
-  "upscale":                "upscale_photo",
-  "upscale_image":          "upscale_photo",
-  "enhance":                "enhance_photo",
-  "enhance_image":          "enhance_photo",
-  "improve_quality":        "enhance_photo",
-  "anime":                  "anime_effect",
-  "cartoon":                "cartoon_effect",
-  "hdr":                    "hdr_effect",
-  "glow":                   "glow_effect",
-  "bloom":                  "glow_effect",
-  "sketch":                 "sketch_effect",
-  "pencil_sketch":          "sketch_effect",
-  "neon":                   "neon_effect",
-  "cyberpunk":              "neon_effect",
-  "oil_paint":              "oil_paint_effect",
-  "oil_painting":           "oil_paint_effect",
-  "vintage":                "vintage_effect",
-  "retro":                  "vintage_effect",
-  "film_grain":             "vintage_effect",
-  "color":                  "color_correction",
-  "color_correct":          "color_correction",
-  "color_enhance":          "color_correction",
-  "portrait":               "portrait_enhance",
-  "face_enhance":           "portrait_enhance",
-  "photo_to_video":         "photo_to_video_cinematic",
-  "image_to_video":         "photo_to_video_cinematic",
-  "cinematic":              "photo_to_video_cinematic",
-  "zoom_video":             "photo_to_video_zoom",
-  "pan_video":              "photo_to_video_pan",
-  "video_quality":          "video_enhance",
-  "enhance_video":          "video_enhance",
-  "stabilize":              "video_stabilize",
-  "denoise":                "video_noise_reduction",
-  "noise_reduction":        "video_noise_reduction",
-  "watermark":              "video_watermark",
-  "subtitle":               "video_subtitle",
+  "enhance":              "video_enhance",
+  "enhance_video":        "video_enhance",
+  "jernih":               "video_enhance",
+  "jernihkan":            "video_enhance",
+  "stabilize":            "video_stabilize",
+  "stabilisasi":          "video_stabilize",
+  "denoise":              "video_noise_reduction",
+  "noise_reduction":      "video_noise_reduction",
+  "watermark":            "video_watermark",
+  "hd":                   "video_quality_hd",
+  "720p":                 "video_quality_hd",
+  "fhd":                  "video_quality_fhd",
+  "full_hd":              "video_quality_fhd",
+  "1080p":                "video_quality_fhd",
+  "4k":                   "video_quality_4k",
+  "2160p":                "video_quality_4k",
+  "subtitle":             "video_subtitle",
+  "caption":              "video_subtitle",
+  "teks":                 "video_subtitle",
+  "bw":                   "video_effect_bw",
+  "hitam_putih":          "video_effect_bw",
+  "grayscale":            "video_effect_bw",
+  "cinematic":            "video_effect_cinematic",
+  "movie_look":           "video_effect_cinematic",
+  "vintage":              "video_effect_vintage",
+  "retro":                "video_effect_vintage",
+  "drama":                "video_effect_drama",
+  "dramatic":             "video_effect_drama",
+  "vivid":                "video_effect_vivid",
+  "colorful":             "video_effect_vivid",
+  "landscape":            "video_ratio_16_9",
+  "portrait":             "video_ratio_9_16",
+  "reels":                "video_ratio_9_16",
+  "tiktok":               "video_ratio_9_16",
+  "square":               "video_ratio_1_1",
+  "persegi":              "video_ratio_1_1",
+  "classic":              "video_ratio_4_3",
+  "klasik":               "video_ratio_4_3",
+  "widescreen":           "video_ratio_21_9",
+  "photo_to_video":       "photo_to_video_cinematic",
+  "image_to_video":       "photo_to_video_cinematic",
+  "foto_ke_video":        "photo_to_video_cinematic",
+  "zoom_video":           "photo_to_video_zoom",
+  "pan_video":            "photo_to_video_pan",
 };
 
 const VALID_ACTIONS = new Set<string>([
-  "remove_background","upscale_photo","enhance_photo","anime_effect","cartoon_effect",
-  "hdr_effect","glow_effect","sketch_effect","neon_effect","oil_paint_effect","vintage_effect",
-  "portrait_enhance","color_correction","remove_object","style_transfer",
-  "photo_to_video_cinematic","photo_to_video_zoom","photo_to_video_pan",
-  "image_to_video","text_to_video",
-  "video_upscale","video_enhance","video_stabilize","video_subtitle","video_caption",
-  "video_resize","video_watermark","video_noise_reduction",
+  "video_enhance", "video_stabilize", "video_noise_reduction", "video_watermark",
+  "video_quality_hd", "video_quality_fhd", "video_quality_4k",
+  "video_subtitle",
+  "video_effect_cinematic", "video_effect_bw", "video_effect_vintage", "video_effect_drama", "video_effect_vivid",
+  "video_ratio_16_9", "video_ratio_9_16", "video_ratio_1_1", "video_ratio_4_3", "video_ratio_21_9",
+  "photo_to_video_cinematic", "photo_to_video_zoom", "photo_to_video_pan",
 ]);
 
 function normalizeAction(raw: string | null | undefined): EditAction | null {
@@ -115,13 +123,11 @@ function parseAgentResponse(rawText: string): AgentResponse {
     offTopic: false,
   };
 
-  // Cari JSON di dalam teks (ambil yang pertama ditemukan)
   const jsonMatch = rawText.match(/\{[\s\S]*?\}/);
   if (!jsonMatch) return fallback;
 
   try {
     const raw = JSON.parse(jsonMatch[0]) as any;
-    // Validasi: message harus string pendek (bukan template/format guide)
     const msg = String(raw.message ?? "").trim();
     if (!msg || msg.length > 1000 || msg.includes('"action"') || msg.includes('"message"')) {
       return fallback;
@@ -178,7 +184,7 @@ export async function runAgent(
 
   if (!nvidiaClient) {
     return {
-      message: "NVIDIA API Key belum dikonfigurasi. Hubungi admin untuk mengisi API key.",
+      message: "NVIDIA API Key belum dikonfigurasi. Hubungi admin.",
       action: null, needsConfirmation: false, isConfirmation: false, offTopic: false,
     };
   }

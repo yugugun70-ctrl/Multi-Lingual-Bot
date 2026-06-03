@@ -1,5 +1,5 @@
 import type { Context } from "grammy";
-import { getOrCreateUser, PHOTO_EDIT_COST, VIDEO_EDIT_COST, TOPUP_AMOUNT_IDR, TOPUP_CREDITS } from "../credits";
+import { getOrCreateUser, VIDEO_EDIT_COST, TOPUP_AMOUNT_IDR, TOPUP_CREDITS } from "../credits";
 import { mainInlineKeyboard } from "./start";
 
 export async function handleCreditInfo(ctx: Context): Promise<void> {
@@ -12,12 +12,9 @@ export async function handleCreditInfo(ctx: Context): Promise<void> {
     `💳 *Kredit Kamu*\n\n` +
     `💰 Saldo: *${user.credits} kredit*\n\n` +
     `📋 *Tarif:*\n` +
-    `📷 Edit Foto → *${PHOTO_EDIT_COST} kredit*\n` +
-    `🎞️ Foto → Video → *${VIDEO_EDIT_COST} kredit*\n` +
-    `🖼️ Teks → Foto → *${VIDEO_EDIT_COST} kredit*\n` +
-    `✨ Jernihkan Video → *${VIDEO_EDIT_COST} kredit*\n` +
+    `🎞️ Semua fitur video → *${VIDEO_EDIT_COST} kredit*\n` +
     `💬 Chat AI → *GRATIS* ♾️\n\n` +
-    `💡 *Catatan:* Kredit hanya dipotong jika produksi *berhasil*.\n\n` +
+    `💡 *Catatan:* Kredit hanya dipotong jika proses *berhasil*.\n\n` +
     `💳 *Top Up:* Rp ${TOPUP_AMOUNT_IDR.toLocaleString("id-ID")} = *${TOPUP_CREDITS} kredit*`,
     { parse_mode: "Markdown", reply_markup: mainInlineKeyboard() }
   );
@@ -41,8 +38,7 @@ export async function handleAkunInfo(ctx: Context): Promise<void> {
     `Status: ${user.premium ? "⭐ Premium" : "🆓 Standar"}\n` +
     `Bergabung: ${joined}\n\n` +
     `💳 *Saldo Kredit: ${user.credits} kredit*\n\n` +
-    `📷 Edit Foto = ${PHOTO_EDIT_COST} kredit\n` +
-    `🎞️ Edit/Buat Video = ${VIDEO_EDIT_COST} kredit\n` +
+    `🎞️ Semua fitur video = *${VIDEO_EDIT_COST} kredit*\n` +
     `💬 Chat AI = GRATIS`,
     { parse_mode: "Markdown", reply_markup: mainInlineKeyboard() }
   );

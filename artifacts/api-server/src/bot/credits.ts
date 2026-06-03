@@ -4,33 +4,18 @@ import type { User } from "@workspace/db";
 import type { EditAction } from "./state";
 
 // ─── Konstanta Kredit ─────────────────────────────────────────────────────────
-export const NEW_USER_CREDITS = 20;         // Kredit gratis untuk user baru
-export const PHOTO_EDIT_COST = 1;           // 1 kredit per edit foto
-export const VIDEO_EDIT_COST = 3;           // 3 kredit per edit/buat video
-export const TOPUP_AMOUNT_IDR = 15000;      // Rp 15.000
-export const TOPUP_CREDITS = 100;           // = 100 kredit
+export const NEW_USER_CREDITS   = 20;       // Kredit gratis untuk user baru
+export const VIDEO_EDIT_COST    = 5;        // 5 kredit per operasi video
+export const TOPUP_AMOUNT_IDR   = 15000;    // Rp 15.000
+export const TOPUP_CREDITS      = 100;      // = 100 kredit
 
-// Chat AI GRATIS — tidak mengurangi kredit sama sekali
+// Chat AI GRATIS
 export const CHAT_COST = 0;
 
-export type CreditCost = typeof PHOTO_EDIT_COST | typeof VIDEO_EDIT_COST | 0;
+export type CreditCost = typeof VIDEO_EDIT_COST | 0;
 
-const PHOTO_ACTIONS = new Set<EditAction>([
-  "remove_background", "upscale_photo", "enhance_photo", "anime_effect",
-  "cartoon_effect", "portrait_enhance", "color_correction", "remove_object", "style_transfer",
-]);
-
-const VIDEO_ACTIONS = new Set<EditAction>([
-  "video_upscale", "video_enhance", "video_stabilize", "video_subtitle",
-  "video_caption", "video_resize", "video_watermark", "video_noise_reduction",
-  "photo_to_video_cinematic", "photo_to_video_zoom", "photo_to_video_pan",
-  "image_to_video", "text_to_video",
-]);
-
-export function getCreditCost(action: EditAction): CreditCost {
-  if (PHOTO_ACTIONS.has(action)) return PHOTO_EDIT_COST;
-  if (VIDEO_ACTIONS.has(action)) return VIDEO_EDIT_COST;
-  return PHOTO_EDIT_COST;
+export function getCreditCost(_action: EditAction): CreditCost {
+  return VIDEO_EDIT_COST;
 }
 
 // ─── Buat user baru atau ambil yang sudah ada ─────────────────────────────────
@@ -106,35 +91,11 @@ export async function addCredits(
 // ─── Pesan error kredit habis ─────────────────────────────────────────────────
 
 export function getCreditErrorMessage(cost: CreditCost, currentCredits: number): string {
-  const label = cost === VIDEO_EDIT_COST ? "video" : "foto";
   return (
-    `❌ *Kredit tidak cukup!*\n\n` +
-    `Aksi ini membutuhkan *${cost} kredit* (${label}), tapi kamu hanya punya *${currentCredits} kredit*.\n\n` +
+    `❌ <b>Kredit tidak cukup!</b>\n\n` +
+    `Aksi ini membutuhkan <b>${cost} kredit</b>, tapi kamu hanya punya <b>${currentCredits} kredit</b>.\n\n` +
     `💳 Top up kredit:\n` +
-    `Rp ${TOPUP_AMOUNT_IDR.toLocaleString("id-ID")} → *${TOPUP_CREDITS} kredit*\n\n` +
-    `Ketik /topup atau tekan tombol *💳 Top Up Credit* untuk top up.`
+    `Rp ${TOPUP_AMOUNT_IDR.toLocaleString("id-ID")} → <b>${TOPUP_CREDITS} kredit</b>\n\n` +
+    `Ketik /topup atau tekan tombol <b>💳 Top Up Kredit</b> untuk top up.`
   );
 }
-
-// ─── Compat: fungsi lama (masih dipakai beberapa file) ────────────────────────
-// @deprecated Gunakan checkCredits + deductCredits
-export type QuotaType = "chat" | "photo_edit" | "video_edit" | "photo_to_video";
-
-export function getQuotaTypeForAction(action: EditAction): QuotaType {
-  if (["remove_background","upscale_photo","enhance_photo","anime_effect","cartoon_effect","portrait_enhance","color_correction","remove_object","style_transfer"].includes(action)) return "photo_edit";
-  if (["video_upscale","video_enhance","video_stabilize","video_subtitle","video_caption","video_resize","video_watermark","video_noise_reduction"].includes(action)) return "video_edit";
-  return "photo_to_video";
-}
-
-export function getQuotaLimitMessage(type: QuotaType): string {
-  return `❌ Kredit tidak cukup untuk aksi ini. Tekan *💳 Top Up Credit* untuk top up.`;
-}
-
-export const FREE_CHAT_QUOTA = 50;
-export const FREE_PHOTO_EDIT_QUOTA = 5;
-export const FREE_VIDEO_EDIT_QUOTA = 2;
-export const FREE_PHOTO_TO_VIDEO_QUOTA = 1;
-export const PREMIUM_CHAT_QUOTA = 500;
-export const PREMIUM_PHOTO_EDIT_QUOTA = 50;
-export const PREMIUM_VIDEO_EDIT_QUOTA = 20;
-export const PREMIUM_PHOTO_TO_VIDEO_QUOTA = 10;
