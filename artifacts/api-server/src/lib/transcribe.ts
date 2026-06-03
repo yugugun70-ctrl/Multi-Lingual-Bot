@@ -39,27 +39,30 @@ export async function getVideoInfo(inputPath: string): Promise<VideoInfo> {
     const parts  = stdout.trim().split(",");
     const width  = parseInt(parts[0] ?? "1280") || 1280;
     const height = parseInt(parts[1] ?? "720")  || 720;
-
     const { stdout: durOut } = await execAsync(
       `${ffprobe()} -v error -show_entries format=duration -of default=noprint_wrappers=1:nokey=1 "${inputPath}"`
     );
     const duration = parseFloat(durOut.trim()) || 30;
-
     return { width, height, duration, isPortrait: height > width };
   } catch {
     return { width: 1280, height: 720, duration: 30, isPortrait: false };
   }
 }
 
-// ─── Ekstrak audio WAV dari video ─────────────────────────────────────────────
+// ─── Ekstrak audio sebagai raw float32 PCM (bypass AudioContext) ───────────────
 
-async function extractAudioWav(inputPath: string, maxSec = 60): Promise<string> {
-  const outPath = path.join(os.tmpdir(), `editai_asr_${Date.now()}.wav`);
-  await execAsync(
-    `${ffmpeg()} -y -i "${inputPath}" -vn -ar 16000 -ac 1 -t ${maxSec} "${outPath}"`,
-    { timeout: 60000 }
-  );
-  return outPath;
+async function extractAudioPCM(inputPath: string, maxSec = 60): Promise<Float32Array> {
+  const pcmPath = path.join(os.tmpdir(), `editai_pcm_${Date.now()}.f32`);
+  try {
+    await execAsync(
+      `${ffmpeg()} -y -i "${inputPath}" -vn -ar 16000 -ac 1 -t ${maxSec} -f f32le "${pcmPath}"`,
+      { timeout: 60000 }
+    );
+    const buf = await fs.readFile(pcmPath);
+    return new Float32Array(buf.buffer, buf.byteOffset, buf.byteLength / 4);
+  } finally {
+    await fs.unlink(pcmPath).catch(() => {});
+  }
 }
 
 // ─── Lazy-load pipeline Whisper (cached setelah pertama kali) ─────────────────
@@ -70,24 +73,22 @@ const _pipelineWaiters: Array<(p: any) => void> = [];
 
 async function getWhisperPipeline(): Promise<any> {
   if (_whisperPipeline) return _whisperPipeline;
-
   if (_pipelineLoading) {
     return new Promise((resolve) => _pipelineWaiters.push(resolve));
   }
-
   _pipelineLoading = true;
-  logger.info("Memuat model Whisper (pertama kali, unduh ~40MB)...");
+  logger.info("Memuat model Whisper (pertama kali ~40MB)...");
 
   try {
-    // Pakai env TRANSFORMERS_CACHE agar model tersimpan persisten di project
     const cacheDir = path.join(process.cwd(), ".whisper_cache");
-    process.env.TRANSFORMERS_CACHE     = cacheDir;
-    process.env.HF_HOME                = cacheDir;
-    process.env.HUGGINGFACE_HUB_CACHE  = cacheDir;
+    process.env.TRANSFORMERS_CACHE    = cacheDir;
+    process.env.HF_HOME               = cacheDir;
+    process.env.HUGGINGFACE_HUB_CACHE = cacheDir;
 
     const { pipeline, env } = await import("@xenova/transformers");
-    env.cacheDir  = cacheDir;
-    env.localModelPath = cacheDir;
+    env.cacheDir        = cacheDir;
+    env.localModelPath  = cacheDir;
+    env.backends.onnx.wasm.numThreads = 2;
 
     _whisperPipeline = await pipeline(
       "automatic-speech-recognition",
@@ -95,55 +96,53 @@ async function getWhisperPipeline(): Promise<any> {
       { quantized: true }
     );
 
-    logger.info("Model Whisper berhasil dimuat!");
-
-    // Beritahu semua yang menunggu
-    for (const resolve of _pipelineWaiters) resolve(_whisperPipeline);
+    logger.info("Model Whisper siap!");
+    for (const r of _pipelineWaiters) r(_whisperPipeline);
     _pipelineWaiters.length = 0;
-
     return _whisperPipeline;
   } catch (err: any) {
     _pipelineLoading = false;
     _whisperPipeline  = null;
-    for (const resolve of _pipelineWaiters) resolve(null);
+    for (const r of _pipelineWaiters) r(null);
     _pipelineWaiters.length = 0;
     throw err;
   }
 }
 
-// ─── Fungsi utama transkripsi ──────────────────────────────────────────────────
+// ─── Transkripsi utama ─────────────────────────────────────────────────────────
 
 export async function transcribeVideo(inputPath: string): Promise<TranscriptResult> {
-  let audioPath: string | null = null;
-
   try {
-    logger.info("Mengekstrak audio dari video...");
-    audioPath = await extractAudioWav(inputPath, 60);
+    logger.info("Mengekstrak audio PCM dari video...");
+    const audioData = await extractAudioPCM(inputPath, 60);
 
-    const asr = await getWhisperPipeline();
-    if (!asr) {
-      return { success: false, error: "Model Whisper gagal dimuat." };
+    if (audioData.length < 1600) {
+      return { success: false, error: "Audio terlalu pendek atau tidak ada suara." };
     }
 
-    logger.info("Menjalankan Whisper (lokal)...");
-    const result = await asr(audioPath, {
-      chunk_length_s:    30,
-      stride_length_s:   5,
-      language:          null,    // auto-detect (Indonesia, English, dll)
-      task:              "transcribe",
+    const asr = await getWhisperPipeline();
+    if (!asr) return { success: false, error: "Model Whisper gagal dimuat." };
+
+    logger.info({ samples: audioData.length }, "Menjalankan Whisper lokal...");
+
+    // Kirim Float32Array langsung → bypass AudioContext sepenuhnya
+    const result = await asr(audioData, {
+      sampling_rate:    16000,
+      chunk_length_s:   30,
+      stride_length_s:  5,
+      task:             "transcribe",
+      language:         null,          // auto-detect
       return_timestamps: true,
     });
 
+    const fullText = String(result?.text ?? "").trim();
     const chunks: Array<{ timestamp: [number, number | null]; text: string }> =
       result?.chunks ?? [];
-
-    const fullText = (result?.text ?? "").trim();
 
     if (!fullText && chunks.length === 0) {
       return { success: false, error: "Tidak ada suara yang terdeteksi dalam video." };
     }
 
-    // Bangun segmen dari chunks; jika tidak ada timestamps, buat satu segmen
     let segments: TranscriptSegment[];
     if (chunks.length > 0) {
       segments = chunks
@@ -157,13 +156,11 @@ export async function transcribeVideo(inputPath: string): Promise<TranscriptResu
       segments = [{ start: 0, end: 9999, text: fullText }];
     }
 
-    logger.info({ segCount: segments.length, fullText: fullText.slice(0, 80) }, "Whisper selesai");
+    logger.info({ segCount: segments.length }, "Whisper selesai");
     return { success: true, segments, fullText };
 
   } catch (err: any) {
     logger.error({ err }, "Transkripsi gagal");
     return { success: false, error: `Gagal transkripsi: ${err.message?.slice(0, 120)}` };
-  } finally {
-    if (audioPath) await fs.unlink(audioPath).catch(() => {});
   }
 }

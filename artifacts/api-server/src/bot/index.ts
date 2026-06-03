@@ -5,20 +5,20 @@ import { logger } from "../lib/logger";
 import {
   handleStart, mainInlineKeyboard, kualitasKeyboard, efekVideoKeyboard,
   rasioVideoKeyboard, subtitlePosKeyboard, subtitleMenuKeyboard,
-  autoSubtitleConfirmKeyboard, fotoVideoKeyboard,
+  autoSubtitleConfirmKeyboard, topupTiersKeyboard,
 } from "./handlers/start";
 import { handleCreditInfo, handleAkunInfo } from "./handlers/credit_info";
-import { handleTopUp, handlePaymentProof, handleAdminApprove } from "./handlers/premium";
+import { handleTopUp, handleTopUpTier, handlePaymentProof, handleAdminApprove } from "./handlers/premium";
 import {
   handleAdminUsers, handleAdminStats, handleAddQuota, handleRemoveQuota,
   handleBan, handleBroadcast, handleTestStatus, isAdmin,
 } from "./handlers/admin";
-import { handleCheckin } from "./handlers/checkin";
 import { runAgent, clearHistory } from "./agent";
 import {
   getOrCreateUser, checkCredits, deductCredits,
   getCreditCost, getCreditErrorMessage, VIDEO_EDIT_COST,
 } from "./credits";
+import type { TopupTierKey } from "./credits";
 import { getUserState, setUserState, clearPending } from "./state";
 import { executeEditAction, videoAutoSubtitle } from "./tools";
 import { transcribeVideo, getVideoInfo } from "../lib/transcribe";
@@ -77,11 +77,10 @@ async function runAutoSubtitleTranscription(
   }
 
   setUserState(telegramId, { isTranscribing: true });
-  await ctx.reply("🎙️ <b>Mendeteksi suara...</b>\n\nMengekstrak audio & mengirim ke AI Whisper...\n<i>(30–60 detik)</i>", { parse_mode: "HTML" });
+  await ctx.reply("🎙️ <b>Mendeteksi suara...</b>\n\nMengekstrak audio & memproses dengan Whisper AI...\n<i>(30–90 detik)</i>", { parse_mode: "HTML" });
 
   try {
-    // Download video ke temp file untuk analisis
-    const buf = await downloadBuffer(videoUrl);
+    const buf     = await downloadBuffer(videoUrl);
     const tmpPath = await bufferToTempFile(buf, "mp4");
 
     const [transcript, videoInfo] = await Promise.all([
@@ -89,7 +88,6 @@ async function runAutoSubtitleTranscription(
       getVideoInfo(tmpPath),
     ]);
 
-    // Cleanup temp — videoUrl masih disimpan di state untuk dipakai saat apply
     await import("node:fs/promises").then(m => m.unlink(tmpPath)).catch(() => {});
 
     if (!transcript.success || !transcript.segments || transcript.segments.length === 0) {
@@ -101,20 +99,16 @@ async function runAutoSubtitleTranscription(
       return;
     }
 
-    // Saran posisi berdasarkan dimensi video
-    const suggestedPos: "top" | "middle" | "bottom" = videoInfo.isPortrait ? "bottom" : "bottom";
-    const oriLabel    = videoInfo.isPortrait ? "Portrait (9:16)" : "Landscape (16:9)";
-    const posReason   = videoInfo.isPortrait
-      ? "posisi bawah ideal untuk video vertikal (Reels/TikTok)"
+    const suggestedPos: "top" | "middle" | "bottom" = "bottom";
+    const oriLabel  = videoInfo.isPortrait ? "Portrait (9:16)" : "Landscape (16:9)";
+    const posReason = videoInfo.isPortrait
+      ? "posisi bawah ideal untuk video vertikal"
       : "posisi bawah standar untuk video horizontal";
 
-    // Potong teks preview maksimal 300 karakter
-    const fullText  = transcript.fullText ?? transcript.segments.map(s => s.text).join(" ");
-    const preview   = fullText.length > 300 ? fullText.slice(0, 297) + "..." : fullText;
-    const segCount  = transcript.segments.length;
-    const langLabel = transcript.language ? ` (${transcript.language})` : "";
+    const fullText = transcript.fullText ?? transcript.segments.map(s => s.text).join(" ");
+    const preview  = fullText.length > 300 ? fullText.slice(0, 297) + "..." : fullText;
+    const segCount = transcript.segments.length;
 
-    // Simpan segmen ke state
     setUserState(telegramId, {
       pendingTranscriptSegments: transcript.segments,
       transcriptSuggestedPosition: suggestedPos,
@@ -123,7 +117,7 @@ async function runAutoSubtitleTranscription(
     });
 
     await ctx.reply(
-      `🎙️ <b>Suara terdeteksi${langLabel}!</b>\n\n` +
+      `🎙️ <b>Suara terdeteksi!</b>\n\n` +
       `<i>"${preview}"</i>\n\n` +
       `📊 ${segCount} segmen subtitle • 🎞️ ${oriLabel}\n\n` +
       `🤖 <b>Saran AI:</b> Subtitle di <b>Bawah</b> — ${posReason}.\n\n` +
@@ -170,13 +164,9 @@ async function runEditAction(
 
     const deducted = await deductCredits(telegramId, cost);
 
-    // ✅ PENTING: Hapus video/foto dari state setelah berhasil edit
-    // Supaya user harus kirim video baru untuk edit berikutnya
     setUserState(telegramId, {
       lastVideoFileUrl: null,
       lastVideoFileId: null,
-      lastPhotoFileUrl: null,
-      lastPhotoFileId: null,
       pendingAction: null,
       menuMode: null,
     });
@@ -199,7 +189,6 @@ async function runEditAction(
 // ─── Parse waktu trim "0:10-0:30" atau "10-30" → {start, end} detik ──────────
 
 function parseTrimTime(input: string): { start: number; end: number } | null {
-  // Format: "10-30" atau "0:10-0:30" atau "1:30-2:00"
   const match = input.match(/^(\d+(?::\d+)?)\s*[-–]\s*(\d+(?::\d+)?)$/);
   if (!match) return null;
 
@@ -227,7 +216,6 @@ export function createBot(token: string): Bot {
   bot.command("akun",    (ctx) => handleAkunInfo(ctx));
   bot.command("kredit",  (ctx) => handleCreditInfo(ctx));
   bot.command("topup",   (ctx) => handleTopUp(ctx));
-  bot.command("checkin", (ctx) => handleCheckin(ctx));
 
   bot.command("help", async (ctx) => {
     await ctx.reply(
@@ -239,12 +227,11 @@ export function createBot(token: string): Bot {
       "📏 <b>Rasio Video</b> — 16:9, 9:16 Reels, 1:1, 4:3, 21:9\n" +
       "💬 <b>Subtitle</b> — teks manual atau 🎙️ otomatis dari suara\n" +
       "✂️ <b>Potong Video</b> — tentukan waktu mulai &amp; akhir\n" +
-      "🎬 <b>Foto → Video</b> — ubah foto jadi video\n" +
-      "🎁 <b>Check-in Harian</b> — kredit gratis tiap hari!\n\n" +
+      "🔊 <b>Bersihkan Suara</b> — hilangkan noise &amp; gangguan dari audio\n\n" +
       `💳 Semua fitur = <b>${VIDEO_EDIT_COST} kredit</b>\n` +
       "Kredit dipotong HANYA jika berhasil.\n" +
       "<i>Durasi video maks 60 detik</i>\n\n" +
-      "/kredit — cek saldo\n/topup — top up\n/checkin — check-in harian\n/reset — reset percakapan",
+      "/kredit — cek saldo\n/topup — top up kredit\n/reset — reset percakapan",
       { parse_mode: "HTML", reply_markup: mainInlineKeyboard() }
     );
   });
@@ -269,7 +256,7 @@ export function createBot(token: string): Bot {
     if (!telegramId) return;
     await clearHistory(telegramId);
     clearPending(telegramId);
-    setUserState(telegramId, { menuMode: null, lastVideoFileUrl: null, lastPhotoFileUrl: null });
+    setUserState(telegramId, { menuMode: null, lastVideoFileUrl: null });
     await ctx.reply("Reset! Pilih layanan:", { reply_markup: mainInlineKeyboard() });
   });
 
@@ -290,17 +277,11 @@ export function createBot(token: string): Bot {
       return;
     }
 
-    if (data === "menu:checkin") {
-      await handleCheckin(ctx as any);
-      return;
-    }
-
     if (data === "menu:jernihkan") {
       const state = getUserState(telegramId);
       if (state.lastVideoFileUrl) {
-        const url = state.lastVideoFileUrl;
         setUserState(telegramId, { pendingAction: null });
-        await runEditAction(ctx, telegramId, "video_enhance", url, "video");
+        await runEditAction(ctx, telegramId, "video_enhance", state.lastVideoFileUrl, "video");
       } else {
         setUserState(telegramId, { pendingAction: "video_enhance" });
         await ctx.reply(
@@ -392,14 +373,32 @@ export function createBot(token: string): Bot {
       return;
     }
 
-    if (data === "menu:foto_video") {
-      setUserState(telegramId, { menuMode: "foto_video" });
-      await ctx.reply("🎬 <b>Foto → Video</b>\n\nPilih gaya efek, lalu kirim fotomu:", { parse_mode: "HTML", reply_markup: fotoVideoKeyboard() });
+    if (data === "menu:audio_denoise") {
+      const state = getUserState(telegramId);
+      if (state.lastVideoFileUrl) {
+        setUserState(telegramId, { pendingAction: null });
+        await runEditAction(ctx, telegramId, "video_audio_denoise", state.lastVideoFileUrl, "video");
+      } else {
+        setUserState(telegramId, { pendingAction: "video_audio_denoise" });
+        await ctx.reply(
+          "🔊 <b>Bersihkan Suara Video</b>\n\nKirim videomu — saya akan menghilangkan noise, gangguan suara, dan memperjernih audio.\n\n<i>(Durasi maks 60 detik)</i>",
+          { parse_mode: "HTML" }
+        );
+      }
       return;
     }
 
     if (data === "menu:topup") {
       await handleTopUp(ctx as any);
+      return;
+    }
+
+    // ── Pilih paket top up ───────────────────────────────────────────────────
+    if (data.startsWith("topup_tier:")) {
+      const tierKey = data.replace("topup_tier:", "") as TopupTierKey;
+      if (tierKey === "starter" || tierKey === "value") {
+        await handleTopUpTier(ctx as any, tierKey);
+      }
       return;
     }
 
@@ -454,9 +453,9 @@ export function createBot(token: string): Bot {
 
     // ── Pilih posisi subtitle ────────────────────────────────────────────────
     if (data.startsWith("subtitle_pos:")) {
-      const pos       = data.replace("subtitle_pos:", "") as "top" | "middle" | "bottom";
-      const posLabel  = { top: "Atas ⬆️", middle: "Tengah ↕️", bottom: "Bawah ⬇️" };
-      const state     = getUserState(telegramId);
+      const pos      = data.replace("subtitle_pos:", "") as "top" | "middle" | "bottom";
+      const posLabel = { top: "Atas ⬆️", middle: "Tengah ↕️", bottom: "Bawah ⬇️" };
+      const state    = getUserState(telegramId);
 
       setUserState(telegramId, { subtitlePosition: pos, awaitingSubtitleText: true, menuMode: "subtitle_pos" });
 
@@ -491,9 +490,7 @@ export function createBot(token: string): Bot {
       "edit:video_ratio_1_1":          "video_ratio_1_1",
       "edit:video_ratio_4_3":          "video_ratio_4_3",
       "edit:video_ratio_21_9":         "video_ratio_21_9",
-      "edit:photo_to_video_cinematic": "photo_to_video_cinematic",
-      "edit:photo_to_video_zoom":      "photo_to_video_zoom",
-      "edit:photo_to_video_pan":       "photo_to_video_pan",
+      "edit:video_audio_denoise":      "video_audio_denoise",
     };
 
     const actionLabels: Record<string, string> = {
@@ -510,32 +507,14 @@ export function createBot(token: string): Bot {
       "video_ratio_1_1":        "1:1 Square",
       "video_ratio_4_3":        "4:3 Klasik",
       "video_ratio_21_9":       "21:9 Sinema",
-      "photo_to_video_cinematic": "Video Sinematik",
-      "photo_to_video_zoom":    "Video Zoom In",
-      "photo_to_video_pan":     "Video Pan",
+      "video_audio_denoise":    "Bersihkan Suara",
     };
 
     const action = directActions[data];
     if (action) {
-      const label       = actionLabels[action] ?? action;
-      const state       = getUserState(telegramId);
-      const isPhotoAct  = action.startsWith("photo_to_video_");
+      const label = actionLabels[action] ?? action;
+      const state = getUserState(telegramId);
 
-      if (isPhotoAct) {
-        if (state.lastPhotoFileUrl) {
-          setUserState(telegramId, { pendingAction: null });
-          await runEditAction(ctx, telegramId, action, state.lastPhotoFileUrl, "photo");
-        } else {
-          setUserState(telegramId, { pendingAction: action });
-          await ctx.reply(
-            `🎬 <b>${label}</b> dipilih!\n\nKirim fotomu untuk diubah jadi video.\n<i>(Kredit dipotong hanya jika berhasil)</i>`,
-            { parse_mode: "HTML" }
-          );
-        }
-        return;
-      }
-
-      // Video action
       if (state.lastVideoFileUrl) {
         setUserState(telegramId, { pendingAction: null });
         await runEditAction(ctx, telegramId, action, state.lastVideoFileUrl, "video");
@@ -550,7 +529,7 @@ export function createBot(token: string): Bot {
     }
   });
 
-  // ── Foto ──────────────────────────────────────────────────────────────────
+  // ── Foto (hanya untuk bukti bayar) ────────────────────────────────────────
   bot.on("message:photo", async (ctx) => {
     const telegramId = ctx.from?.id;
     if (!telegramId) return;
@@ -561,44 +540,7 @@ export function createBot(token: string): Bot {
     const state = getUserState(telegramId);
     if (state.awaitingPaymentProof) { await handlePaymentProof(ctx as any); return; }
 
-    const photo   = ctx.message.photo[ctx.message.photo.length - 1];
-    const file    = await ctx.api.getFile(photo.file_id);
-    const fileUrl = `https://api.telegram.org/file/bot${token}/${file.file_path}`;
-    setUserState(telegramId, { lastPhotoFileId: photo.file_id, lastPhotoFileUrl: fileUrl });
-
-    // Pending action foto→video dari tombol
-    if (state.pendingAction?.startsWith("photo_to_video_")) {
-      const action = state.pendingAction;
-      setUserState(telegramId, { pendingAction: null });
-      await runEditAction(ctx, telegramId, action, fileUrl, "photo");
-      return;
-    }
-
-    // Mode foto → video
-    if (state.menuMode === "foto_video") {
-      const caption = ctx.message.caption?.toLowerCase() ?? "";
-      const type    = caption.includes("zoom") ? "photo_to_video_zoom"
-                    : caption.includes("pan")  ? "photo_to_video_pan"
-                    : "photo_to_video_cinematic";
-      await runEditAction(ctx, telegramId, type as EditAction, fileUrl, "photo");
-      return;
-    }
-
-    // Caption dengan perintah AI
-    const caption = ctx.message.caption?.trim() ?? "";
-    if (caption) {
-      await ctx.replyWithChatAction("typing");
-      const agentResp = await runAgent(telegramId, caption);
-      if (agentResp.action?.startsWith("photo_to_video_")) {
-        await runEditAction(ctx, telegramId, agentResp.action, fileUrl, "photo", agentResp.extraParams);
-        return;
-      }
-      await ctx.reply(agentResp.message + "\n\nPilih layanan:", { reply_markup: mainInlineKeyboard() });
-      return;
-    }
-
-    await ctx.reply("📸 Foto diterima! Ingin ubah jadi video?", { reply_markup: fotoVideoKeyboard() });
-    setUserState(telegramId, { menuMode: "foto_video" });
+    await ctx.reply("📸 Foto diterima! Bot ini khusus edit video. Kirim video untuk mulai.\n\nKetik /topup untuk top up kredit.", { reply_markup: mainInlineKeyboard() });
   });
 
   // ── Video ──────────────────────────────────────────────────────────────────
@@ -609,7 +551,6 @@ export function createBot(token: string): Bot {
     const user = await getOrCreateUser(telegramId, ctx.from?.username, ctx.from?.first_name);
     if (user.banned) { await ctx.reply("Akun kamu diblokir."); return; }
 
-    // Cek ukuran file sebelum download (Telegram limit ~20MB untuk bot)
     const vid = ctx.message.video;
     if (vid.file_size && vid.file_size > 50 * 1024 * 1024) {
       await ctx.reply(
@@ -625,22 +566,18 @@ export function createBot(token: string): Bot {
     const file    = await ctx.api.getFile(vid.file_id);
     const fileUrl = `https://api.telegram.org/file/bot${token}/${file.file_path}`;
 
-    // Simpan video di state
     setUserState(telegramId, { lastVideoFileId: vid.file_id, lastVideoFileUrl: fileUrl });
 
-    // Ada pending action dari tombol (bukan foto→video)
-    if (state.pendingAction && !state.pendingAction.startsWith("photo_to_video_")) {
-      const action = state.pendingAction;
+    if (state.pendingAction) {
+      const pendingAct = state.pendingAction;
 
-      // Auto subtitle — langsung transkripsi
-      if (action === "video_auto_subtitle") {
+      if (pendingAct === "video_auto_subtitle") {
         setUserState(telegramId, { pendingAction: null });
         await runAutoSubtitleTranscription(ctx, telegramId, fileUrl, token);
         return;
       }
 
-      // Jika pending adalah video_subtitle, tampilkan menu subtitle dulu
-      if (action === "video_subtitle") {
+      if (pendingAct === "video_subtitle") {
         setUserState(telegramId, { menuMode: null });
         await ctx.reply(
           "💬 <b>Subtitle</b>\n\nPilih cara menambahkan subtitle:",
@@ -649,8 +586,7 @@ export function createBot(token: string): Bot {
         return;
       }
 
-      // Jika pending adalah video_trim, perlu waktu
-      if (action === "video_trim") {
+      if (pendingAct === "video_trim") {
         setUserState(telegramId, { pendingAction: null, awaitingTrimTime: true });
         await ctx.reply(
           "✂️ <b>Potong Video</b>\n\nKetik waktu pemotongan:\n\n" +
@@ -661,11 +597,10 @@ export function createBot(token: string): Bot {
       }
 
       setUserState(telegramId, { pendingAction: null });
-      await runEditAction(ctx, telegramId, action, fileUrl, "video");
+      await runEditAction(ctx, telegramId, pendingAct, fileUrl, "video");
       return;
     }
 
-    // Mode subtitle aktif — video baru masuk, minta posisi
     if (state.menuMode === "subtitle_pos" && !state.awaitingSubtitleText) {
       await ctx.reply(
         "💬 <b>Posisi Subtitle</b>\n\nPilih di mana teks akan muncul:",
@@ -674,7 +609,6 @@ export function createBot(token: string): Bot {
       return;
     }
 
-    // Mode trim aktif — video baru, minta waktu
     if (state.awaitingTrimTime) {
       await ctx.reply(
         "✂️ Ketik waktu pemotongan:\nContoh: <code>10-30</code> atau <code>1:30-2:00</code>",
@@ -683,12 +617,11 @@ export function createBot(token: string): Bot {
       return;
     }
 
-    // Caption — AI deteksi perintah
     const caption = ctx.message.caption?.trim() ?? "";
     if (caption) {
       await ctx.replyWithChatAction("typing");
       const agentResp = await runAgent(telegramId, caption);
-      if (agentResp.action && !agentResp.action.startsWith("photo_to_video_")) {
+      if (agentResp.action) {
         if (agentResp.action === "video_subtitle") {
           setUserState(telegramId, { menuMode: "subtitle_pos" });
           await ctx.reply("💬 Pilih posisi subtitle:", { reply_markup: subtitlePosKeyboard() });
@@ -706,7 +639,6 @@ export function createBot(token: string): Bot {
       return;
     }
 
-    // Tampilkan menu
     await ctx.reply("🎬 Video diterima! Pilih layanan:", { reply_markup: mainInlineKeyboard() });
   });
 
@@ -809,21 +741,14 @@ export function createBot(token: string): Bot {
         return;
       }
 
-      // Action video lain
-      if (!agentResp.action.startsWith("photo_to_video_") && state2.lastVideoFileUrl) {
+      if (state2.lastVideoFileUrl) {
         await runEditAction(ctx, telegramId, agentResp.action, state2.lastVideoFileUrl, "video", agentResp.extraParams);
         return;
       }
-      if (agentResp.action.startsWith("photo_to_video_") && state2.lastPhotoFileUrl) {
-        await runEditAction(ctx, telegramId, agentResp.action, state2.lastPhotoFileUrl, "photo", agentResp.extraParams);
-        return;
-      }
 
-      // Simpan pending, minta kirim media
       setUserState(telegramId, { pendingAction: agentResp.action });
-      const needPhoto = agentResp.action.startsWith("photo_to_video_");
       await ctx.reply(
-        `${agentResp.message}\n\nKirim ${needPhoto ? "foto" : "video"}mu untuk diproses.`,
+        `${agentResp.message}\n\nKirim videomu untuk diproses.`,
         { reply_markup: mainInlineKeyboard() }
       );
       return;
@@ -833,7 +758,7 @@ export function createBot(token: string): Bot {
   });
 
   // ── Media lain ────────────────────────────────────────────────────────────
-  bot.on("message:voice",   async (ctx) => ctx.reply("Pesan suara belum didukung.", { reply_markup: mainInlineKeyboard() }));
+  bot.on("message:voice",   async (ctx) => ctx.reply("Pesan suara belum didukung. Kirim video untuk edit.", { reply_markup: mainInlineKeyboard() }));
   bot.on("message:sticker", async (ctx) => ctx.reply("Pilih layanan video:", { reply_markup: mainInlineKeyboard() }));
   bot.on("message:document", async (ctx) => {
     const telegramId = ctx.from?.id ?? 0;

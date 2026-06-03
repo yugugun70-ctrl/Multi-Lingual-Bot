@@ -1,9 +1,11 @@
 import type { TranscriptSegment } from "../lib/transcribe";
+import type { TopupTierKey } from "./credits";
 
 export type EditAction =
   | "video_enhance"
   | "video_stabilize"
   | "video_noise_reduction"
+  | "video_audio_denoise"
   | "video_watermark"
   | "video_trim"
   | "video_quality_hd"
@@ -20,22 +22,25 @@ export type EditAction =
   | "video_ratio_9_16"
   | "video_ratio_1_1"
   | "video_ratio_4_3"
-  | "video_ratio_21_9"
-  | "photo_to_video_cinematic"
-  | "photo_to_video_zoom"
-  | "photo_to_video_pan";
+  | "video_ratio_21_9";
 
-export type MenuMode = "main" | "kualitas" | "efek" | "rasio" | "foto_video" | "subtitle_pos" | "auto_subtitle_pos" | null;
+export type MenuMode =
+  | "main"
+  | "kualitas"
+  | "efek"
+  | "rasio"
+  | "subtitle_pos"
+  | "auto_subtitle_pos"
+  | null;
 
 export interface UserState {
   pending: null;
   menuMode: MenuMode;
   pendingAction: EditAction | null;
-  lastPhotoFileId: string | null;
-  lastPhotoFileUrl: string | null;
   lastVideoFileId: string | null;
   lastVideoFileUrl: string | null;
   awaitingPaymentProof: boolean;
+  topupTier: TopupTierKey | null;
   awaitingSubtitleText: boolean;
   subtitlePosition: "top" | "middle" | "bottom";
   awaitingTrimTime: boolean;
@@ -52,11 +57,10 @@ export function getUserState(telegramId: number): UserState {
       pending: null,
       menuMode: null,
       pendingAction: null,
-      lastPhotoFileId: null,
-      lastPhotoFileUrl: null,
       lastVideoFileId: null,
       lastVideoFileUrl: null,
       awaitingPaymentProof: false,
+      topupTier: null,
       awaitingSubtitleText: false,
       subtitlePosition: "bottom",
       awaitingTrimTime: false,

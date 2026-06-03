@@ -49,76 +49,6 @@ async function cleanup(...paths: string[]): Promise<void> {
   await Promise.all(paths.map((p) => fs.unlink(p).catch(() => {})));
 }
 
-// ─── Photo to Video (Ken Burns) ───────────────────────────────────────────────
-
-export async function photoToVideoFFmpeg(
-  imageUrl: string,
-  type: "cinematic" | "zoom" | "pan"
-): Promise<VideoResult> {
-  const buf = await fetchBuffer(imageUrl);
-
-  let inputBuf = buf;
-  try {
-    const sharp = (await import("sharp")).default;
-    const meta  = await sharp(buf).metadata();
-    const w = Math.max(meta.width ?? 1280, 1920);
-    const h = Math.max(meta.height ?? 720, 1080);
-    inputBuf = await sharp(buf)
-      .resize(w, h, { kernel: sharp.kernel.lanczos3, fit: "inside" })
-      .sharpen({ sigma: 0.5 })
-      .jpeg({ quality: 95 })
-      .toBuffer();
-  } catch { /* pakai original */ }
-
-  const inputPath  = await bufferToTempFile(inputBuf, "jpg");
-  const outputPath = path.join(os.tmpdir(), `editai_p2v_${Date.now()}.mp4`);
-
-  try {
-    const durSec = 15;
-    const fps    = 25;
-    const frames = durSec * fps;
-
-    const zoomFilters: Record<string, string> = {
-      cinematic: [
-        "scale=iw*2:ih*2:flags=lanczos",
-        `zoompan=z='min(zoom+0.0008,1.3)':d=${frames}:x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':s=1280x720:fps=${fps}`,
-        "unsharp=3:3:0.8",
-      ].join(","),
-      zoom: [
-        "scale=iw*2:ih*2:flags=lanczos",
-        `zoompan=z='min(zoom+0.0013,1.5)':d=${frames}:x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':s=1280x720:fps=${fps}`,
-        "unsharp=3:3:0.8",
-      ].join(","),
-      pan: [
-        "scale=iw*2:ih*2:flags=lanczos",
-        `zoompan=z='1.2':d=${frames}:x='min(x+iw/zoom/${frames}*0.4,iw-iw/zoom)':y='ih/2-(ih/zoom/2)':s=1280x720:fps=${fps}`,
-        "unsharp=3:3:0.8",
-      ].join(","),
-    };
-
-    await runFF([
-      "-y", "-loop", "1", "-i", `"${inputPath}"`,
-      "-f", "lavfi", "-i", "anullsrc=channel_layout=stereo:sample_rate=44100",
-      "-vf", `"${zoomFilters[type]}"`,
-      "-c:v", "libx264", "-crf", "22", "-preset", "medium",
-      "-profile:v", "high", "-pix_fmt", "yuv420p",
-      "-movflags", "+faststart",
-      "-c:a", "aac", "-b:a", "128k",
-      "-t", String(durSec), "-shortest",
-      `"${outputPath}"`,
-    ], 180000);
-
-    const base64    = await toBase64(outputPath, "video/mp4");
-    const typeLabel = { cinematic: "Sinematik", zoom: "Zoom In", pan: "Pan" }[type];
-    return { success: true, outputUrl: base64, mimeType: "video/mp4", isVideo: true, message: `Video ${typeLabel} ${durSec}s berhasil dibuat!` };
-  } catch (err: any) {
-    logger.error({ err }, "Photo-to-video gagal");
-    return { success: false, error: `Photo to video gagal: ${err.message?.slice(0, 100)}` };
-  } finally {
-    await cleanup(inputPath, outputPath);
-  }
-}
-
 // ─── Video Enhance (Jernihkan) — PRESERVE aspect ratio ────────────────────────
 
 export async function videoEnhanceFFmpeg(videoUrl: string): Promise<VideoResult> {
@@ -480,6 +410,44 @@ function formatTime(sec: number): string {
   const m = Math.floor(sec / 60);
   const s = Math.floor(sec % 60);
   return `${m}:${String(s).padStart(2, "0")}`;
+}
+
+// ─── Audio Denoise (Bersihkan Suara) ─────────────────────────────────────────
+
+export async function videoAudioDenoiseFFmpeg(videoUrl: string): Promise<VideoResult> {
+  const inputPath  = await bufferToTempFile(await fetchBuffer(videoUrl), "mp4");
+  const outputPath = path.join(os.tmpdir(), `editai_adenoise_${Date.now()}.mp4`);
+
+  try {
+    const dur = await getDuration(inputPath);
+
+    // Audio filter chain:
+    // highpass=f=80    — buang low rumble (AC hum, angin)
+    // afftdn=nf=-20    — FFT noise floor reduction
+    // anlmdn=s=7       — adaptive non-local means denoiser (sibilance)
+    // loudnorm         — normalisasi loudness agar tidak terlalu pelan/kencang
+    const audioFilter = "highpass=f=80,afftdn=nf=-20,anlmdn=s=7,loudnorm";
+
+    await runFF([
+      "-y", "-i", `"${inputPath}"`, "-t", String(dur),
+      "-c:v", "copy",               // copy video stream — tidak di-encode ulang (cepat)
+      "-af", `"${audioFilter}"`,
+      "-c:a", "aac", "-b:a", "192k",
+      "-movflags", "+faststart",
+      `"${outputPath}"`,
+    ], 180000);
+
+    const base64 = await toBase64(outputPath, "video/mp4");
+    return {
+      success: true, outputUrl: base64, mimeType: "video/mp4", isVideo: true,
+      message: `🔊 Suara video berhasil dijernihkan! (${dur.toFixed(0)}s)`,
+    };
+  } catch (err: any) {
+    logger.error({ err }, "Audio denoise gagal");
+    return { success: false, error: `Bersihkan suara gagal: ${err.message?.slice(0, 100)}` };
+  } finally {
+    await cleanup(inputPath, outputPath);
+  }
 }
 
 // ─── Auto Subtitle (Timed, dari Whisper) ──────────────────────────────────────

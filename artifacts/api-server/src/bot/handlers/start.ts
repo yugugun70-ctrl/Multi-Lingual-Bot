@@ -1,6 +1,6 @@
 import type { Context } from "grammy";
 import { InlineKeyboard } from "grammy";
-import { getOrCreateUser, NEW_USER_CREDITS, VIDEO_EDIT_COST, TOPUP_AMOUNT_IDR, TOPUP_CREDITS } from "../credits";
+import { getOrCreateUser, NEW_USER_CREDITS, VIDEO_EDIT_COST, TOPUP_TIERS } from "../credits";
 
 function escHtml(s: string): string {
   return String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
@@ -15,9 +15,9 @@ export function mainInlineKeyboard(): InlineKeyboard {
     .row()
     .text("💬 Tambah Subtitle", "menu:subtitle").text("✂️ Potong Video", "menu:trim")
     .row()
-    .text("🎬 Foto → Video", "menu:foto_video")
+    .text("🔊 Bersihkan Suara", "menu:audio_denoise")
     .row()
-    .text("💳 Top Up Kredit", "menu:topup").text("🎁 Check-in Harian", "menu:checkin");
+    .text("💳 Top Up Kredit", "menu:topup");
 }
 
 // ─── Submenu Kualitas ─────────────────────────────────────────────────────────
@@ -90,26 +90,44 @@ export function autoSubtitleConfirmKeyboard(suggestedPos: "top" | "middle" | "bo
     .text("❌ Batal", "menu:back");
 }
 
-// ─── Submenu Foto → Video ─────────────────────────────────────────────────────
-export function fotoVideoKeyboard(): InlineKeyboard {
+// ─── Pilihan Paket Top Up ──────────────────────────────────────────────────────
+export function topupTiersKeyboard(): InlineKeyboard {
   return new InlineKeyboard()
-    .text("🎬 Efek Sinematik", "edit:photo_to_video_cinematic")
+    .text(
+      `${TOPUP_TIERS.starter.label}: Rp ${TOPUP_TIERS.starter.idr.toLocaleString("id-ID")} → ${TOPUP_TIERS.starter.credits} kredit`,
+      "topup_tier:starter"
+    )
     .row()
-    .text("🔎 Efek Zoom In", "edit:photo_to_video_zoom")
-    .row()
-    .text("↔️ Efek Pan", "edit:photo_to_video_pan")
+    .text(
+      `${TOPUP_TIERS.value.label}: Rp ${TOPUP_TIERS.value.idr.toLocaleString("id-ID")} → ${TOPUP_TIERS.value.credits} kredit`,
+      "topup_tier:value"
+    )
     .row()
     .text("◀️ Menu Utama", "menu:back");
 }
 
-// ─── Teks Top Up ──────────────────────────────────────────────────────────────
-export function getTopUpText(): string {
-  return (
-    `<b>💳 Top Up Kredit EditAI</b>\n\n` +
-    `💰 <b>Harga:</b> Rp ${TOPUP_AMOUNT_IDR.toLocaleString("id-ID")} → <b>${TOPUP_CREDITS} kredit</b>\n\n` +
+// ─── Teks Top Up (untuk paket tertentu) ───────────────────────────────────────
+export function getTopUpText(tierKey?: "starter" | "value"): string {
+  const rateInfo =
     `<b>Tarif penggunaan:</b>\n` +
     `🎞️ Semua fitur video → <b>${VIDEO_EDIT_COST} kredit</b>\n` +
-    `💬 Chat AI → <b>GRATIS</b>\n\n` +
+    `💬 Chat AI → <b>GRATIS</b>\n\n`;
+
+  if (!tierKey) {
+    return (
+      `<b>💳 Top Up Kredit EditAI</b>\n\n` +
+      `<b>Pilih paket:</b>\n` +
+      `• ${TOPUP_TIERS.starter.label}: Rp ${TOPUP_TIERS.starter.idr.toLocaleString("id-ID")} → <b>${TOPUP_TIERS.starter.credits} kredit</b>\n` +
+      `• ${TOPUP_TIERS.value.label}: Rp ${TOPUP_TIERS.value.idr.toLocaleString("id-ID")} → <b>${TOPUP_TIERS.value.credits} kredit</b>\n\n` +
+      rateInfo
+    );
+  }
+
+  const tier = TOPUP_TIERS[tierKey];
+  return (
+    `<b>💳 Top Up — ${tier.label}</b>\n\n` +
+    `💰 <b>Transfer:</b> Rp ${tier.idr.toLocaleString("id-ID")} → <b>${tier.credits} kredit</b>\n\n` +
+    rateInfo +
     `<b>Cara Top Up:</b>\n` +
     `1. Transfer ke salah satu rekening di bawah\n` +
     `2. Kirim screenshot bukti transfer ke chat ini\n` +
@@ -136,8 +154,7 @@ export async function handleStart(ctx: Context): Promise<void> {
       : "Selamat datang kembali!") +
     `\n\nSaya asisten AI untuk <b>edit video</b> profesional.\n\n` +
     `💳 Kredit kamu: <b>${user.credits} kredit</b>\n` +
-    `🎞️ Semua fitur video = <b>${VIDEO_EDIT_COST} kredit</b> per proses\n` +
-    `🎁 Check-in harian = <b>kredit gratis!</b>\n\n` +
+    `🎞️ Semua fitur video = <b>${VIDEO_EDIT_COST} kredit</b> per proses\n\n` +
     `Pilih layanan 👇`,
     { parse_mode: "HTML", reply_markup: mainInlineKeyboard() }
   );

@@ -3,16 +3,15 @@ import {
   videoEnhanceFFmpeg,
   videoStabilizeFFmpeg,
   videoNoiseReductionFFmpeg,
+  videoAudioDenoiseFFmpeg,
   videoWatermarkFFmpeg,
   videoQualityFFmpeg,
   videoSubtitleOverlayFFmpeg,
   videoEffectFFmpeg,
   videoRatioFFmpeg,
   videoTrimFFmpeg,
-  photoToVideoFFmpeg,
   videoAutoSubtitleFFmpeg,
 } from "../lib/video-processor";
-import { klingImageToVideo, isKlingConfigured } from "../lib/kling";
 import type { TranscriptSegment } from "../lib/transcribe";
 import type { EditAction } from "./state";
 
@@ -28,26 +27,12 @@ function wrap(r: { success: boolean; outputUrl?: string; error?: string; message
   return { success: r.success, outputUrl: r.outputUrl, error: r.error, message: r.message, isVideo: r.isVideo };
 }
 
-// ─── Photo → Video ────────────────────────────────────────────────────────────
-
-export async function photoToVideo(imageUrl: string, type: "cinematic" | "zoom" | "pan"): Promise<ToolResult> {
-  if (isKlingConfigured()) {
-    try {
-      const r = await klingImageToVideo(imageUrl, type === "cinematic" ? "cinematic pan" : type);
-      if (r.success) return r;
-      logger.warn({ err: r.error }, "Kling gagal, fallback FFmpeg");
-    } catch (err: any) {
-      logger.warn({ err }, "Kling gagal, fallback FFmpeg");
-    }
-  }
-  return wrap(await photoToVideoFFmpeg(imageUrl, type));
-}
-
 // ─── Video Tools ──────────────────────────────────────────────────────────────
 
 export async function videoEnhance(u: string): Promise<ToolResult>        { return wrap(await videoEnhanceFFmpeg(u)); }
 export async function videoStabilize(u: string): Promise<ToolResult>      { return wrap(await videoStabilizeFFmpeg(u)); }
 export async function videoNoiseReduction(u: string): Promise<ToolResult> { return wrap(await videoNoiseReductionFFmpeg(u)); }
+export async function videoAudioDenoise(u: string): Promise<ToolResult>   { return wrap(await videoAudioDenoiseFFmpeg(u)); }
 export async function videoWatermark(u: string, t = "EditAI"): Promise<ToolResult> { return wrap(await videoWatermarkFFmpeg(u, t)); }
 
 export async function videoQualityHD(u: string): Promise<ToolResult>  { return wrap(await videoQualityFFmpeg(u, "hd")); }
@@ -87,13 +72,10 @@ export async function executeEditAction(
   extraParams?: Record<string, string>
 ): Promise<ToolResult> {
   switch (action) {
-    case "photo_to_video_cinematic": return photoToVideo(fileUrl, "cinematic");
-    case "photo_to_video_zoom":      return photoToVideo(fileUrl, "zoom");
-    case "photo_to_video_pan":       return photoToVideo(fileUrl, "pan");
-
     case "video_enhance":            return videoEnhance(fileUrl);
     case "video_stabilize":          return videoStabilize(fileUrl);
     case "video_noise_reduction":    return videoNoiseReduction(fileUrl);
+    case "video_audio_denoise":      return videoAudioDenoise(fileUrl);
     case "video_watermark":          return videoWatermark(fileUrl, extraParams?.text ?? "EditAI");
 
     case "video_quality_hd":         return videoQualityHD(fileUrl);

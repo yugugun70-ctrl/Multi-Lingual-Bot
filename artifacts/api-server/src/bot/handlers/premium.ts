@@ -1,9 +1,10 @@
 import type { Context } from "grammy";
 import { db, usersTable } from "@workspace/db";
 import { eq } from "drizzle-orm";
-import { getOrCreateUser, addCredits, TOPUP_AMOUNT_IDR, TOPUP_CREDITS } from "../credits";
+import { getOrCreateUser, addCredits, TOPUP_TIERS } from "../credits";
+import type { TopupTierKey } from "../credits";
 import { getUserState, setUserState } from "../state";
-import { mainInlineKeyboard, getTopUpText } from "./start";
+import { mainInlineKeyboard, getTopUpText, topupTiersKeyboard } from "./start";
 import { getConfigValue } from "../../lib/config";
 
 function escHtml(s: string): string {
@@ -28,30 +29,46 @@ export async function handlePremiumCommand(ctx: Context): Promise<void> {
   return handleTopUp(ctx);
 }
 
+// Tampilkan pilihan paket
 export async function handleTopUp(ctx: Context): Promise<void> {
   const telegramId = ctx.from?.id;
   if (!telegramId) return;
 
-  // getTopUpText() sudah include rekening BNI/GoPay — cukup tampilkan itu saja
   await ctx.reply(
-    getTopUpText() + `\n\n<i>Setelah transfer, kirim foto/screenshot bukti pembayaran ke chat ini.</i>`,
-    { parse_mode: "HTML", reply_markup: mainInlineKeyboard() }
+    getTopUpText() + `Pilih paket top up:`,
+    { parse_mode: "HTML", reply_markup: topupTiersKeyboard() }
   );
-
-  setUserState(telegramId, { awaitingPaymentProof: true });
 }
 
+// User memilih tier tertentu
+export async function handleTopUpTier(ctx: Context, tierKey: TopupTierKey): Promise<void> {
+  const telegramId = ctx.from?.id;
+  if (!telegramId) return;
+
+  const tier = TOPUP_TIERS[tierKey];
+  setUserState(telegramId, { awaitingPaymentProof: true, topupTier: tierKey });
+
+  await ctx.reply(
+    getTopUpText(tierKey),
+    { parse_mode: "HTML", reply_markup: mainInlineKeyboard() }
+  );
+}
+
+// User kirim bukti pembayaran
 export async function handlePaymentProof(ctx: Context): Promise<void> {
   const telegramId = ctx.from?.id;
   if (!telegramId) return;
 
-  const user = await getOrCreateUser(telegramId, ctx.from?.username, ctx.from?.first_name);
-  const name = escHtml(user.firstName || user.username || `User ${telegramId}`);
+  const user     = await getOrCreateUser(telegramId, ctx.from?.username, ctx.from?.first_name);
+  const name     = escHtml(user.firstName || user.username || `User ${telegramId}`);
+  const state    = getUserState(telegramId);
+  const tierKey  = state.topupTier ?? "starter";
+  const tier     = TOPUP_TIERS[tierKey];
 
   await ctx.reply(
     `✅ <b>Bukti pembayaran diterima!</b>\n\n` +
     `Terima kasih ${name}! Admin akan memverifikasi dalam <b>1×24 jam</b>.\n` +
-    `Setelah dikonfirmasi, <b>${TOPUP_CREDITS} kredit</b> akan ditambahkan ke akun kamu. 🙏`,
+    `Setelah dikonfirmasi, <b>${tier.credits} kredit</b> akan ditambahkan ke akun kamu. 🙏`,
     { parse_mode: "HTML", reply_markup: mainInlineKeyboard() }
   );
 
@@ -62,8 +79,8 @@ export async function handlePaymentProof(ctx: Context): Promise<void> {
         `💳 <b>Permintaan Top Up Baru!</b>\n\n` +
         `👤 ${name} (@${escHtml(user.username || "-")})\n` +
         `🆔 ID: <code>${telegramId}</code>\n` +
-        `💰 Nominal: Rp ${TOPUP_AMOUNT_IDR.toLocaleString("id-ID")} → ${TOPUP_CREDITS} kredit\n\n` +
-        `Konfirmasi dengan:\n<code>/addcredit ${telegramId} ${TOPUP_CREDITS}</code>`,
+        `📦 Paket: ${tier.label} — Rp ${tier.idr.toLocaleString("id-ID")} → ${tier.credits} kredit\n\n` +
+        `Konfirmasi dengan:\n<code>/addcredit ${telegramId} ${tier.credits}</code>`,
         { parse_mode: "HTML" }
       );
       if (ctx.message?.photo || ctx.message?.document) {
@@ -72,7 +89,7 @@ export async function handlePaymentProof(ctx: Context): Promise<void> {
     } catch { /* ignore jika admin tidak bisa dihubungi */ }
   }
 
-  setUserState(telegramId, { awaitingPaymentProof: false });
+  setUserState(telegramId, { awaitingPaymentProof: false, topupTier: null });
 }
 
 export async function handleAdminApprove(ctx: Context, args: string[]): Promise<void> {

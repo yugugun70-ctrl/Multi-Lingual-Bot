@@ -20,12 +20,12 @@ HANYA balas dalam format JSON berikut — tidak boleh ada teks lain:
 {"message":"balasanmu","action":null,"off_topic":false}
 
 Daftar action yang valid:
-video_enhance, video_stabilize, video_noise_reduction, video_watermark, video_trim,
+video_enhance, video_stabilize, video_noise_reduction, video_audio_denoise,
+video_watermark, video_trim,
 video_quality_hd, video_quality_fhd, video_quality_4k,
 video_subtitle, video_auto_subtitle,
 video_effect_cinematic, video_effect_bw, video_effect_vintage, video_effect_drama, video_effect_vivid,
-video_ratio_16_9, video_ratio_9_16, video_ratio_1_1, video_ratio_4_3, video_ratio_21_9,
-photo_to_video_cinematic, photo_to_video_zoom, photo_to_video_pan
+video_ratio_16_9, video_ratio_9_16, video_ratio_1_1, video_ratio_4_3, video_ratio_21_9
 
 ATURAN:
 - Jika user minta edit video → set action sesuai
@@ -33,6 +33,8 @@ ATURAN:
 - video_effect_bw = hitam putih, video_effect_cinematic = warna sinematik
 - video_ratio_9_16 = portrait/reels/tiktok, video_ratio_16_9 = landscape/youtube
 - video_trim = potong video
+- video_audio_denoise = hilangkan noise/gangguan suara dari video
+- video_auto_subtitle = buat subtitle otomatis dari suara video
 - Jika topik lain → off_topic true, tolak sopan
 - Selalu balas bahasa Indonesia, singkat & ramah`;
 
@@ -57,9 +59,11 @@ const ACTION_ALIASES: Record<string, EditAction> = {
   "4k": "video_quality_4k", "2160p": "video_quality_4k",
   "subtitle": "video_subtitle", "caption": "video_subtitle", "teks": "video_subtitle",
   "auto_subtitle": "video_auto_subtitle", "auto_caption": "video_auto_subtitle",
-  "subtitle_otomatis": "video_auto_subtitle", "caption_otomatis": "video_auto_subtitle",
-  "transkripsi": "video_auto_subtitle", "transcribe": "video_auto_subtitle",
-  "subtitle_suara": "video_auto_subtitle", "dari_suara": "video_auto_subtitle",
+  "subtitle_otomatis": "video_auto_subtitle", "transkripsi": "video_auto_subtitle",
+  "audio_denoise": "video_audio_denoise", "bersihkan_suara": "video_audio_denoise",
+  "noise_audio": "video_audio_denoise", "hapus_noise": "video_audio_denoise",
+  "denoise_audio": "video_audio_denoise", "audio_noise": "video_audio_denoise",
+  "bising": "video_audio_denoise", "gangguan_suara": "video_audio_denoise",
   "bw": "video_effect_bw", "hitam_putih": "video_effect_bw", "grayscale": "video_effect_bw",
   "cinematic": "video_effect_cinematic", "movie_look": "video_effect_cinematic",
   "vintage": "video_effect_vintage", "retro": "video_effect_vintage",
@@ -70,18 +74,15 @@ const ACTION_ALIASES: Record<string, EditAction> = {
   "square": "video_ratio_1_1", "persegi": "video_ratio_1_1",
   "classic": "video_ratio_4_3", "klasik": "video_ratio_4_3",
   "widescreen": "video_ratio_21_9",
-  "photo_to_video": "photo_to_video_cinematic", "image_to_video": "photo_to_video_cinematic",
-  "foto_ke_video": "photo_to_video_cinematic",
-  "zoom_video": "photo_to_video_zoom", "pan_video": "photo_to_video_pan",
 };
 
 const VALID_ACTIONS = new Set<string>([
-  "video_enhance", "video_stabilize", "video_noise_reduction", "video_watermark", "video_trim",
+  "video_enhance", "video_stabilize", "video_noise_reduction", "video_audio_denoise",
+  "video_watermark", "video_trim",
   "video_quality_hd", "video_quality_fhd", "video_quality_4k",
   "video_subtitle", "video_auto_subtitle",
   "video_effect_cinematic", "video_effect_bw", "video_effect_vintage", "video_effect_drama", "video_effect_vivid",
   "video_ratio_16_9", "video_ratio_9_16", "video_ratio_1_1", "video_ratio_4_3", "video_ratio_21_9",
-  "photo_to_video_cinematic", "photo_to_video_zoom", "photo_to_video_pan",
 ]);
 
 function normalizeAction(raw: string | null | undefined): EditAction | null {

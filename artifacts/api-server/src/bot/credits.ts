@@ -4,12 +4,21 @@ import type { User } from "@workspace/db";
 import type { EditAction } from "./state";
 
 // ─── Konstanta Kredit ─────────────────────────────────────────────────────────
-export const NEW_USER_CREDITS   = 20;       // Kredit gratis untuk user baru
+export const NEW_USER_CREDITS   = 50;       // Kredit gratis untuk user baru
 export const VIDEO_EDIT_COST    = 5;        // 5 kredit per operasi video
-export const TOPUP_AMOUNT_IDR   = 15000;    // Rp 15.000
-export const TOPUP_CREDITS      = 100;      // = 100 kredit
 
-// Chat AI GRATIS
+// ─── Paket Top Up ─────────────────────────────────────────────────────────────
+export const TOPUP_TIERS = {
+  starter: { label: "💡 Starter",  idr: 10_000, credits: 100 },
+  value:   { label: "⭐ Value",    idr: 20_000, credits: 250 },
+} as const;
+
+export type TopupTierKey = keyof typeof TOPUP_TIERS;
+
+// Kompatibilitas dengan kode lama
+export const TOPUP_AMOUNT_IDR = TOPUP_TIERS.starter.idr;
+export const TOPUP_CREDITS    = TOPUP_TIERS.starter.credits;
+
 export const CHAT_COST = 0;
 
 export type CreditCost = typeof VIDEO_EDIT_COST | 0;
@@ -93,9 +102,10 @@ export async function addCredits(
 export function getCreditErrorMessage(cost: CreditCost, currentCredits: number): string {
   return (
     `❌ <b>Kredit tidak cukup!</b>\n\n` +
-    `Aksi ini membutuhkan <b>${cost} kredit</b>, tapi kamu hanya punya <b>${currentCredits} kredit</b>.\n\n` +
-    `💳 Top up kredit:\n` +
-    `Rp ${TOPUP_AMOUNT_IDR.toLocaleString("id-ID")} → <b>${TOPUP_CREDITS} kredit</b>\n\n` +
-    `Ketik /topup atau tekan tombol <b>💳 Top Up Kredit</b> untuk top up.`
+    `Aksi ini butuh <b>${cost} kredit</b>, kamu punya <b>${currentCredits} kredit</b>.\n\n` +
+    `💳 <b>Pilihan Top Up:</b>\n` +
+    `• Rp 10.000 → <b>100 kredit</b>\n` +
+    `• Rp 20.000 → <b>250 kredit</b>\n\n` +
+    `Ketik /topup untuk top up.`
   );
 }
