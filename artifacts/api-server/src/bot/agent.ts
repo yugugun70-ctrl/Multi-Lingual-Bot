@@ -22,7 +22,7 @@ HANYA balas dalam format JSON berikut — tidak boleh ada teks lain:
 Daftar action yang valid:
 video_enhance, video_stabilize, video_noise_reduction, video_watermark, video_trim,
 video_quality_hd, video_quality_fhd, video_quality_4k,
-video_subtitle,
+video_subtitle, video_auto_subtitle,
 video_effect_cinematic, video_effect_bw, video_effect_vintage, video_effect_drama, video_effect_vivid,
 video_ratio_16_9, video_ratio_9_16, video_ratio_1_1, video_ratio_4_3, video_ratio_21_9,
 photo_to_video_cinematic, photo_to_video_zoom, photo_to_video_pan
@@ -56,6 +56,10 @@ const ACTION_ALIASES: Record<string, EditAction> = {
   "fhd": "video_quality_fhd", "full_hd": "video_quality_fhd", "1080p": "video_quality_fhd",
   "4k": "video_quality_4k", "2160p": "video_quality_4k",
   "subtitle": "video_subtitle", "caption": "video_subtitle", "teks": "video_subtitle",
+  "auto_subtitle": "video_auto_subtitle", "auto_caption": "video_auto_subtitle",
+  "subtitle_otomatis": "video_auto_subtitle", "caption_otomatis": "video_auto_subtitle",
+  "transkripsi": "video_auto_subtitle", "transcribe": "video_auto_subtitle",
+  "subtitle_suara": "video_auto_subtitle", "dari_suara": "video_auto_subtitle",
   "bw": "video_effect_bw", "hitam_putih": "video_effect_bw", "grayscale": "video_effect_bw",
   "cinematic": "video_effect_cinematic", "movie_look": "video_effect_cinematic",
   "vintage": "video_effect_vintage", "retro": "video_effect_vintage",
@@ -74,7 +78,7 @@ const ACTION_ALIASES: Record<string, EditAction> = {
 const VALID_ACTIONS = new Set<string>([
   "video_enhance", "video_stabilize", "video_noise_reduction", "video_watermark", "video_trim",
   "video_quality_hd", "video_quality_fhd", "video_quality_4k",
-  "video_subtitle",
+  "video_subtitle", "video_auto_subtitle",
   "video_effect_cinematic", "video_effect_bw", "video_effect_vintage", "video_effect_drama", "video_effect_vivid",
   "video_ratio_16_9", "video_ratio_9_16", "video_ratio_1_1", "video_ratio_4_3", "video_ratio_21_9",
   "photo_to_video_cinematic", "photo_to_video_zoom", "photo_to_video_pan",

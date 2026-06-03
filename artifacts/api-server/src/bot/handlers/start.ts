@@ -56,6 +56,16 @@ export function rasioVideoKeyboard(): InlineKeyboard {
     .text("◀️ Menu Utama", "menu:back");
 }
 
+// ─── Submenu Subtitle ─────────────────────────────────────────────────────────
+export function subtitleMenuKeyboard(): InlineKeyboard {
+  return new InlineKeyboard()
+    .text("🎙️ Auto (dari suara video)", "menu:auto_subtitle")
+    .row()
+    .text("✏️ Ketik Teks Manual", "menu:subtitle_manual")
+    .row()
+    .text("◀️ Menu Utama", "menu:back");
+}
+
 // ─── Submenu Posisi Subtitle ──────────────────────────────────────────────────
 export function subtitlePosKeyboard(): InlineKeyboard {
   return new InlineKeyboard()
@@ -66,6 +76,18 @@ export function subtitlePosKeyboard(): InlineKeyboard {
     .text("⬇️ Teks di Bawah", "subtitle_pos:bottom")
     .row()
     .text("◀️ Menu Utama", "menu:back");
+}
+
+// ─── Konfirmasi Posisi Auto Subtitle ─────────────────────────────────────────
+export function autoSubtitleConfirmKeyboard(suggestedPos: "top" | "middle" | "bottom"): InlineKeyboard {
+  const labels = { top: "⬆️ Atas", middle: "↕️ Tengah", bottom: "⬇️ Bawah" };
+  const suggested = labels[suggestedPos];
+  return new InlineKeyboard()
+    .text(`✅ Pakai Saran AI (${suggested})`, `auto_sub_pos:${suggestedPos}`)
+    .row()
+    .text("⬆️ Atas", "auto_sub_pos:top").text("↕️ Tengah", "auto_sub_pos:middle").text("⬇️ Bawah", "auto_sub_pos:bottom")
+    .row()
+    .text("❌ Batal", "menu:back");
 }
 
 // ─── Submenu Foto → Video ─────────────────────────────────────────────────────

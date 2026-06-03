@@ -10,8 +10,10 @@ import {
   videoRatioFFmpeg,
   videoTrimFFmpeg,
   photoToVideoFFmpeg,
+  videoAutoSubtitleFFmpeg,
 } from "../lib/video-processor";
 import { klingImageToVideo, isKlingConfigured } from "../lib/kling";
+import type { TranscriptSegment } from "../lib/transcribe";
 import type { EditAction } from "./state";
 
 export interface ToolResult {
@@ -54,6 +56,10 @@ export async function videoQuality4K(u: string): Promise<ToolResult>  { return w
 
 export async function videoSubtitle(u: string, text: string, pos: "top" | "middle" | "bottom" = "bottom"): Promise<ToolResult> {
   return wrap(await videoSubtitleOverlayFFmpeg(u, text, pos));
+}
+
+export async function videoAutoSubtitle(u: string, segments: TranscriptSegment[], pos: "top" | "middle" | "bottom" = "bottom"): Promise<ToolResult> {
+  return wrap(await videoAutoSubtitleFFmpeg(u, segments, pos));
 }
 
 export async function videoEffectCinematic(u: string): Promise<ToolResult> { return wrap(await videoEffectFFmpeg(u, "cinematic")); }

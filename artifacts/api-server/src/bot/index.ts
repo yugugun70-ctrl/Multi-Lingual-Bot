@@ -4,7 +4,8 @@ import http from "node:http";
 import { logger } from "../lib/logger";
 import {
   handleStart, mainInlineKeyboard, kualitasKeyboard, efekVideoKeyboard,
-  rasioVideoKeyboard, subtitlePosKeyboard, fotoVideoKeyboard,
+  rasioVideoKeyboard, subtitlePosKeyboard, subtitleMenuKeyboard,
+  autoSubtitleConfirmKeyboard, fotoVideoKeyboard,
 } from "./handlers/start";
 import { handleCreditInfo, handleAkunInfo } from "./handlers/credit_info";
 import { handleTopUp, handlePaymentProof, handleAdminApprove } from "./handlers/premium";
@@ -19,7 +20,9 @@ import {
   getCreditCost, getCreditErrorMessage, VIDEO_EDIT_COST,
 } from "./credits";
 import { getUserState, setUserState, clearPending } from "./state";
-import { executeEditAction } from "./tools";
+import { executeEditAction, videoAutoSubtitle } from "./tools";
+import { transcribeVideo, getVideoInfo } from "../lib/transcribe";
+import { bufferToTempFile } from "../lib/image-processor";
 import type { EditAction } from "./state";
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -53,6 +56,87 @@ async function sendEditResult(ctx: any, outputUrl: string, isVideo: boolean, cap
     await ctx.replyWithPhoto(new InputFile(buf, `editai.${ext}`), { caption, reply_markup: kb });
   } else {
     await ctx.replyWithPhoto(outputUrl, { caption, reply_markup: kb });
+  }
+}
+
+// ─── Auto Subtitle: transkripsi & tampilkan preview ke user ───────────────────
+
+async function runAutoSubtitleTranscription(
+  ctx: any, telegramId: number, videoUrl: string, token: string
+): Promise<void> {
+  const cost = getCreditCost("video_auto_subtitle" as EditAction);
+  const { ok, credits } = await checkCredits(telegramId, cost);
+  if (!ok) {
+    await ctx.reply(getCreditErrorMessage(cost, credits), { parse_mode: "HTML", reply_markup: mainInlineKeyboard() });
+    return;
+  }
+
+  if (getUserState(telegramId).isTranscribing) {
+    await ctx.reply("⏳ Sedang memproses transkripsi sebelumnya...");
+    return;
+  }
+
+  setUserState(telegramId, { isTranscribing: true });
+  await ctx.reply("🎙️ <b>Mendeteksi suara...</b>\n\nMengekstrak audio & mengirim ke AI Whisper...\n<i>(30–60 detik)</i>", { parse_mode: "HTML" });
+
+  try {
+    // Download video ke temp file untuk analisis
+    const buf = await downloadBuffer(videoUrl);
+    const tmpPath = await bufferToTempFile(buf, "mp4");
+
+    const [transcript, videoInfo] = await Promise.all([
+      transcribeVideo(tmpPath),
+      getVideoInfo(tmpPath),
+    ]);
+
+    // Cleanup temp — videoUrl masih disimpan di state untuk dipakai saat apply
+    await import("node:fs/promises").then(m => m.unlink(tmpPath)).catch(() => {});
+
+    if (!transcript.success || !transcript.segments || transcript.segments.length === 0) {
+      setUserState(telegramId, { isTranscribing: false });
+      await ctx.reply(
+        `❌ Tidak bisa mendeteksi suara.\n\n${transcript.error ?? "Pastikan video memiliki audio yang jelas."}\n\nGunakan <b>Ketik Teks Manual</b> sebagai alternatif.`,
+        { parse_mode: "HTML", reply_markup: subtitleMenuKeyboard() }
+      );
+      return;
+    }
+
+    // Saran posisi berdasarkan dimensi video
+    const suggestedPos: "top" | "middle" | "bottom" = videoInfo.isPortrait ? "bottom" : "bottom";
+    const oriLabel    = videoInfo.isPortrait ? "Portrait (9:16)" : "Landscape (16:9)";
+    const posReason   = videoInfo.isPortrait
+      ? "posisi bawah ideal untuk video vertikal (Reels/TikTok)"
+      : "posisi bawah standar untuk video horizontal";
+
+    // Potong teks preview maksimal 300 karakter
+    const fullText  = transcript.fullText ?? transcript.segments.map(s => s.text).join(" ");
+    const preview   = fullText.length > 300 ? fullText.slice(0, 297) + "..." : fullText;
+    const segCount  = transcript.segments.length;
+    const langLabel = transcript.language ? ` (${transcript.language})` : "";
+
+    // Simpan segmen ke state
+    setUserState(telegramId, {
+      pendingTranscriptSegments: transcript.segments,
+      transcriptSuggestedPosition: suggestedPos,
+      isTranscribing: false,
+      menuMode: "auto_subtitle_pos",
+    });
+
+    await ctx.reply(
+      `🎙️ <b>Suara terdeteksi${langLabel}!</b>\n\n` +
+      `<i>"${preview}"</i>\n\n` +
+      `📊 ${segCount} segmen subtitle • 🎞️ ${oriLabel}\n\n` +
+      `🤖 <b>Saran AI:</b> Subtitle di <b>Bawah</b> — ${posReason}.\n\n` +
+      `Pilih posisi atau terima saran AI:`,
+      { parse_mode: "HTML", reply_markup: autoSubtitleConfirmKeyboard(suggestedPos) }
+    );
+  } catch (err: any) {
+    setUserState(telegramId, { isTranscribing: false });
+    logger.error({ err }, "Auto subtitle transcription error");
+    await ctx.reply(
+      `❌ Terjadi kesalahan saat transkripsi: ${err.message?.slice(0, 80)}\n\nCoba lagi atau gunakan teks manual.`,
+      { reply_markup: subtitleMenuKeyboard() }
+    );
   }
 }
 
@@ -248,7 +332,38 @@ export function createBot(token: string): Bot {
       const state = getUserState(telegramId);
       if (!state.lastVideoFileUrl) {
         setUserState(telegramId, { pendingAction: "video_subtitle", menuMode: "subtitle_pos" });
-        await ctx.reply("💬 Kirim videomu dulu, lalu saya minta posisi subtitle.", { reply_markup: mainInlineKeyboard() });
+        await ctx.reply(
+          "💬 <b>Subtitle</b>\n\nKirim videomu dulu, lalu pilih jenis subtitle.",
+          { parse_mode: "HTML", reply_markup: mainInlineKeyboard() }
+        );
+        return;
+      }
+      await ctx.reply(
+        "💬 <b>Subtitle</b>\n\nPilih cara menambahkan subtitle:",
+        { parse_mode: "HTML", reply_markup: subtitleMenuKeyboard() }
+      );
+      return;
+    }
+
+    if (data === "menu:auto_subtitle") {
+      const state = getUserState(telegramId);
+      if (!state.lastVideoFileUrl) {
+        setUserState(telegramId, { pendingAction: "video_auto_subtitle" });
+        await ctx.reply(
+          "🎙️ <b>Auto Subtitle dari Suara</b>\n\nKirim videomu terlebih dahulu, saya akan mendeteksi suara secara otomatis.",
+          { parse_mode: "HTML" }
+        );
+        return;
+      }
+      await runAutoSubtitleTranscription(ctx, telegramId, state.lastVideoFileUrl, token);
+      return;
+    }
+
+    if (data === "menu:subtitle_manual") {
+      const state = getUserState(telegramId);
+      if (!state.lastVideoFileUrl) {
+        setUserState(telegramId, { pendingAction: "video_subtitle", menuMode: "subtitle_pos" });
+        await ctx.reply("✏️ Kirim videomu dulu, lalu saya minta teks subtitle.", { reply_markup: mainInlineKeyboard() });
         return;
       }
       setUserState(telegramId, { menuMode: "subtitle_pos", awaitingSubtitleText: false });
@@ -284,6 +399,55 @@ export function createBot(token: string): Bot {
 
     if (data === "menu:topup") {
       await handleTopUp(ctx as any);
+      return;
+    }
+
+    // ── Konfirmasi posisi auto subtitle ─────────────────────────────────────
+    if (data.startsWith("auto_sub_pos:")) {
+      const pos = data.replace("auto_sub_pos:", "") as "top" | "middle" | "bottom";
+      const state = getUserState(telegramId);
+
+      const segments = state.pendingTranscriptSegments;
+      const videoUrl = state.lastVideoFileUrl;
+
+      if (!segments || segments.length === 0) {
+        await ctx.reply("❌ Segmen subtitle tidak ditemukan. Coba lagi.", { reply_markup: subtitleMenuKeyboard() });
+        return;
+      }
+      if (!videoUrl) {
+        await ctx.reply("❌ Video tidak ditemukan. Kirim video lagi.", { reply_markup: mainInlineKeyboard() });
+        return;
+      }
+
+      const cost = getCreditCost("video_auto_subtitle" as EditAction);
+      const { ok, credits } = await checkCredits(telegramId, cost);
+      if (!ok) {
+        await ctx.reply(getCreditErrorMessage(cost, credits), { parse_mode: "HTML", reply_markup: mainInlineKeyboard() });
+        return;
+      }
+
+      const posLabel = { top: "Atas ⬆️", middle: "Tengah ↕️", bottom: "Bawah ⬇️" }[pos];
+      setUserState(telegramId, { menuMode: null, pendingTranscriptSegments: null });
+      await ctx.reply(`⏳ Membakar subtitle (${segments.length} segmen) di ${posLabel}...\n<i>(10–120 detik)</i>`, { parse_mode: "HTML" });
+      await ctx.replyWithChatAction("upload_video");
+
+      try {
+        const result = await videoAutoSubtitle(videoUrl, segments, pos);
+        if (!result.success || !result.outputUrl) {
+          await ctx.reply(`❌ Gagal: ${result.error ?? "Terjadi kesalahan"}\n\nKredit tidak dikurangi.`, { reply_markup: mainInlineKeyboard() });
+          return;
+        }
+        const deducted = await deductCredits(telegramId, cost);
+        setUserState(telegramId, { lastVideoFileUrl: null, lastVideoFileId: null, pendingAction: null });
+        const caption =
+          `${result.message ?? "Auto subtitle selesai!"}\n` +
+          (cost > 0 ? `-${cost} kredit | Sisa: ${deducted.remaining} kredit\n` : "") +
+          `\n✅ Edit selesai! Kirim video baru untuk edit lagi.`;
+        await sendEditResult(ctx, result.outputUrl, true, caption);
+      } catch (err: any) {
+        logger.error({ err }, "Auto subtitle apply error");
+        await ctx.reply(`❌ Terjadi kesalahan: ${err.message?.slice(0, 100)}\n\nKredit tidak dikurangi.`, { reply_markup: mainInlineKeyboard() });
+      }
       return;
     }
 
@@ -456,12 +620,19 @@ export function createBot(token: string): Bot {
     if (state.pendingAction && !state.pendingAction.startsWith("photo_to_video_")) {
       const action = state.pendingAction;
 
-      // Jika pending adalah video_subtitle, perlu posisi dulu
+      // Auto subtitle — langsung transkripsi
+      if (action === "video_auto_subtitle") {
+        setUserState(telegramId, { pendingAction: null });
+        await runAutoSubtitleTranscription(ctx, telegramId, fileUrl, token);
+        return;
+      }
+
+      // Jika pending adalah video_subtitle, tampilkan menu subtitle dulu
       if (action === "video_subtitle") {
-        setUserState(telegramId, { menuMode: "subtitle_pos" });
+        setUserState(telegramId, { menuMode: null });
         await ctx.reply(
-          "💬 <b>Posisi Subtitle</b>\n\nPilih di mana teks akan muncul:",
-          { parse_mode: "HTML", reply_markup: subtitlePosKeyboard() }
+          "💬 <b>Subtitle</b>\n\nPilih cara menambahkan subtitle:",
+          { parse_mode: "HTML", reply_markup: subtitleMenuKeyboard() }
         );
         return;
       }
@@ -605,12 +776,22 @@ export function createBot(token: string): Bot {
         return;
       }
 
+      if (agentResp.action === "video_auto_subtitle") {
+        if (state2.lastVideoFileUrl) {
+          await runAutoSubtitleTranscription(ctx, telegramId, state2.lastVideoFileUrl, token);
+        } else {
+          setUserState(telegramId, { pendingAction: "video_auto_subtitle" });
+          await ctx.reply(agentResp.message + "\n\nKirim videomu dulu.", { reply_markup: mainInlineKeyboard() });
+        }
+        return;
+      }
+
       if (agentResp.action === "video_subtitle") {
         if (state2.lastVideoFileUrl) {
-          setUserState(telegramId, { menuMode: "subtitle_pos" });
-          await ctx.reply("💬 Pilih posisi subtitle:", { reply_markup: subtitlePosKeyboard() });
+          setUserState(telegramId, { menuMode: null });
+          await ctx.reply("💬 Pilih cara menambahkan subtitle:", { reply_markup: subtitleMenuKeyboard() });
         } else {
-          setUserState(telegramId, { pendingAction: "video_subtitle", menuMode: "subtitle_pos" });
+          setUserState(telegramId, { pendingAction: "video_subtitle" });
           await ctx.reply(agentResp.message + "\n\nKirim videomu dulu.", { reply_markup: mainInlineKeyboard() });
         }
         return;

@@ -481,3 +481,104 @@ function formatTime(sec: number): string {
   const s = Math.floor(sec % 60);
   return `${m}:${String(s).padStart(2, "0")}`;
 }
+
+// ─── Auto Subtitle (Timed, dari Whisper) ──────────────────────────────────────
+
+import type { TranscriptSegment } from "./transcribe";
+
+function wrapSubtitleText(text: string, maxChars = 42): string[] {
+  const words = text.trim().split(/\s+/);
+  const lines: string[] = [];
+  let current = "";
+  for (const word of words) {
+    if ((current + (current ? " " : "") + word).length > maxChars) {
+      if (current) lines.push(current);
+      current = word;
+    } else {
+      current = current ? `${current} ${word}` : word;
+    }
+  }
+  if (current) lines.push(current);
+  return lines.length > 0 ? lines : [""];
+}
+
+function escapeFFmpegText(text: string): string {
+  return text
+    .replace(/\\/g, "\\\\")
+    .replace(/'/g, "\u2019")
+    .replace(/:/g, "\\:")
+    .replace(/\[/g, "\\[")
+    .replace(/\]/g, "\\]")
+    .replace(/,/g, "\\,");
+}
+
+export async function videoAutoSubtitleFFmpeg(
+  videoUrl: string,
+  segments: TranscriptSegment[],
+  position: "top" | "middle" | "bottom" = "bottom"
+): Promise<VideoResult> {
+
+  const inputPath  = await bufferToTempFile(await fetchBuffer(videoUrl), "mp4");
+  const outputPath = path.join(os.tmpdir(), `editai_autosub_${Date.now()}.mp4`);
+
+  try {
+    const dur = await getDuration(inputPath);
+
+    if (segments.length === 0) {
+      return { success: false, error: "Tidak ada segmen subtitle untuk diterapkan." };
+    }
+
+    const filters: string[] = segments.flatMap((seg) => {
+      const safeStart = Math.max(0, seg.start);
+      const safeEnd   = Math.min(seg.end, dur);
+      if (safeEnd <= safeStart) return [];
+
+      const lines = wrapSubtitleText(seg.text, 38);
+      const lineH  = 42;
+      const totalH = lines.length * lineH;
+
+      const yBase = position === "top"    ? "h*0.06"
+                  : position === "middle" ? `(h-${totalH})/2`
+                  : `h-${totalH}-40`;
+
+      return lines.map((line, idx) => {
+        const safe = escapeFFmpegText(line);
+        const yLine = `${yBase}+${idx * lineH}`;
+        return (
+          `drawtext=text='${safe}':fontsize=34:fontcolor=white` +
+          `:x=(w-text_w)/2:y=${yLine}` +
+          `:box=1:boxcolor=black@0.6:boxborderw=10` +
+          `:shadowcolor=black@0.5:shadowx=2:shadowy=2` +
+          `:enable='between(t,${safeStart.toFixed(2)},${safeEnd.toFixed(2)})'`
+        );
+      });
+    });
+
+    if (filters.length === 0) {
+      return { success: false, error: "Segmen subtitle di luar durasi video." };
+    }
+
+    const vfChain = filters.join(",");
+
+    await runFF([
+      "-y", "-i", `"${inputPath}"`, "-t", String(dur),
+      "-vf", `"${vfChain}"`,
+      "-c:v", "libx264", "-crf", "18", "-preset", "medium",
+      "-profile:v", "high", "-movflags", "+faststart",
+      "-c:a", "aac", "-b:a", "192k",
+      `"${outputPath}"`,
+    ], 240000);
+
+    const base64  = await toBase64(outputPath, "video/mp4");
+    const posLabel = { top: "atas", middle: "tengah", bottom: "bawah" }[position];
+    return {
+      success: true, outputUrl: base64, mimeType: "video/mp4", isVideo: true,
+      message: `🎙️ Auto subtitle (${segments.length} segmen) di ${posLabel} berhasil! (${dur.toFixed(0)}s)`,
+    };
+  } catch (err: any) {
+    logger.error({ err }, "Auto subtitle gagal");
+    return { success: false, error: `Auto subtitle gagal: ${err.message?.slice(0, 100)}` };
+  } finally {
+    await cleanup(inputPath, outputPath);
+  }
+}

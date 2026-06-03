@@ -1,3 +1,5 @@
+import type { TranscriptSegment } from "../lib/transcribe";
+
 export type EditAction =
   | "video_enhance"
   | "video_stabilize"
@@ -8,6 +10,7 @@ export type EditAction =
   | "video_quality_fhd"
   | "video_quality_4k"
   | "video_subtitle"
+  | "video_auto_subtitle"
   | "video_effect_cinematic"
   | "video_effect_bw"
   | "video_effect_vintage"
@@ -22,7 +25,7 @@ export type EditAction =
   | "photo_to_video_zoom"
   | "photo_to_video_pan";
 
-export type MenuMode = "main" | "kualitas" | "efek" | "rasio" | "foto_video" | "subtitle_pos" | null;
+export type MenuMode = "main" | "kualitas" | "efek" | "rasio" | "foto_video" | "subtitle_pos" | "auto_subtitle_pos" | null;
 
 export interface UserState {
   pending: null;
@@ -36,6 +39,9 @@ export interface UserState {
   awaitingSubtitleText: boolean;
   subtitlePosition: "top" | "middle" | "bottom";
   awaitingTrimTime: boolean;
+  pendingTranscriptSegments: TranscriptSegment[] | null;
+  transcriptSuggestedPosition: "top" | "middle" | "bottom";
+  isTranscribing: boolean;
 }
 
 const userStates = new Map<number, UserState>();
@@ -54,6 +60,9 @@ export function getUserState(telegramId: number): UserState {
       awaitingSubtitleText: false,
       subtitlePosition: "bottom",
       awaitingTrimTime: false,
+      pendingTranscriptSegments: null,
+      transcriptSuggestedPosition: "bottom",
+      isTranscribing: false,
     });
   }
   return userStates.get(telegramId)!;
@@ -70,5 +79,7 @@ export function clearPending(telegramId: number): void {
     awaitingSubtitleText: false,
     subtitlePosition: "bottom",
     awaitingTrimTime: false,
+    pendingTranscriptSegments: null,
+    isTranscribing: false,
   });
 }
