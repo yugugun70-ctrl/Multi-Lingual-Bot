@@ -2,19 +2,21 @@ import OpenAI from "openai";
 import { db, chatHistoryTable } from "@workspace/db";
 import { eq, asc } from "drizzle-orm";
 import { logger } from "../lib/logger";
+import { getConfigValue } from "../lib/config";
 import type { EditAction } from "./state";
 
-let nvidiaClient: OpenAI | null = null;
-if (process.env.NVIDIA_API_KEY) {
-  nvidiaClient = new OpenAI({
-    apiKey: process.env.NVIDIA_API_KEY,
+function getNvidiaClient(): OpenAI | null {
+  const key = getConfigValue("NVIDIA_API_KEY");
+  if (!key) return null;
+  return new OpenAI({
+    apiKey: key,
     baseURL: "https://integrate.api.nvidia.com/v1",
   });
 }
 
-const NVIDIA_VISION_MODEL   = "meta/llama-3.2-11b-vision-instruct";
-const NVIDIA_TEXT_MODEL     = "nvidia/llama-3.3-nemotron-super-49b-v1";
-const NVIDIA_FALLBACK_MODEL = "nvidia/llama-3.1-nemotron-nano-8b-v1";
+const NVIDIA_VISION_MODEL    = "meta/llama-3.2-11b-vision-instruct";
+const NVIDIA_TEXT_MODEL      = "nvidia/llama-3.3-nemotron-super-49b-v1";
+const NVIDIA_FALLBACK_MODEL  = "nvidia/llama-3.1-nemotron-nano-8b-v1";
 const NVIDIA_FALLBACK2_MODEL = "meta/llama-3.3-70b-instruct";
 
 const SYSTEM_PROMPT = `Kamu adalah EditAI — asisten AI khusus edit foto dan video di Telegram.
@@ -44,8 +46,8 @@ FOTO→VIDEO: photo_to_video_cinematic, photo_to_video_zoom, photo_to_video_pan,
 TEKS→VIDEO: text_to_video
 
 ALUR KERJA:
-1. User kirim foto + deskripsi edit → pilih action terbaik, rekomendasikan, minta konfirmasi
-2. User minta langsung ("hapus background sekarang") → set action langsung tanpa konfirmasi
+1. User kirim foto + deskripsi edit → pilih action terbaik, langsung set action (jangan minta konfirmasi lagi)
+2. User minta langsung ("hapus background sekarang") → set action langsung
 3. User tanya tentang editing → jawab dengan natural, action: null
 4. Topik lain → off_topic: true
 
@@ -53,19 +55,9 @@ FORMAT RESPONS (WAJIB JSON VALID, tidak ada teks di luar JSON):
 {
   "message": "pesan naturalmu ke pengguna",
   "action": null atau nama action,
-  "needs_confirmation": true/false,
-  "is_confirmation": true/false,
-  "off_topic": true/false,
-  "extra_params": {}
-}
-
-Contoh response off-topic:
-{
-  "message": "Maaf, saya hanya bisa membantu soal edit foto dan video. Untuk topik lain, saya tidak bisa membantu ya! 😊",
-  "action": null,
   "needs_confirmation": false,
   "is_confirmation": false,
-  "off_topic": true,
+  "off_topic": false,
   "extra_params": {}
 }`;
 
@@ -79,13 +71,10 @@ export interface AgentResponse {
 }
 
 async function callNvidiaWithFallback(
+  client: OpenAI,
   messages: OpenAI.Chat.ChatCompletionMessageParam[],
   hasImage: boolean
 ): Promise<string> {
-  if (!nvidiaClient) {
-    throw new Error("NVIDIA_API_KEY tidak dikonfigurasi.");
-  }
-
   const modelsToTry = hasImage
     ? [NVIDIA_VISION_MODEL, NVIDIA_FALLBACK2_MODEL, NVIDIA_FALLBACK_MODEL]
     : [NVIDIA_TEXT_MODEL, NVIDIA_FALLBACK_MODEL, NVIDIA_VISION_MODEL, NVIDIA_FALLBACK2_MODEL];
@@ -93,7 +82,7 @@ async function callNvidiaWithFallback(
   for (const model of modelsToTry) {
     try {
       logger.info({ model, hasImage }, "Memanggil NVIDIA NIM");
-      const response = await nvidiaClient.chat.completions.create({
+      const response = await client.chat.completions.create({
         model,
         max_tokens: 512,
         messages,
@@ -116,6 +105,18 @@ export async function runAgent(
   imageBase64?: string,
   imageMediaType?: string
 ): Promise<AgentResponse> {
+  const nvidiaClient = getNvidiaClient();
+
+  if (!nvidiaClient) {
+    return {
+      message: "⚠️ NVIDIA API Key belum dikonfigurasi.\n\nAdmin perlu mengisi API key di halaman setup bot. Hubungi admin.",
+      action: null,
+      needsConfirmation: false,
+      isConfirmation: false,
+      offTopic: false,
+    };
+  }
+
   const history = await db
     .select()
     .from(chatHistoryTable)
@@ -138,7 +139,7 @@ export async function runAgent(
     messages.push({
       role: "user",
       content: [
-        { type: "text", text: `[User mengirim foto ${textPart}]. Analisis dan rekomendasikan edit terbaik.` },
+        { type: "text", text: `[User mengirim foto ${textPart}]. Analisis dan tentukan action terbaik langsung.` },
         { type: "image_url", image_url: { url: dataUrl } },
       ],
     });
@@ -157,13 +158,8 @@ export async function runAgent(
     offTopic: false,
   };
 
-  if (!nvidiaClient) {
-    parsed.message = "⚠️ NVIDIA AI belum dikonfigurasi. Hubungi admin.";
-    return parsed;
-  }
-
   try {
-    const rawText = await callNvidiaWithFallback(messages, !!imageBase64);
+    const rawText = await callNvidiaWithFallback(nvidiaClient, messages, !!imageBase64);
     const jsonMatch = rawText.match(/\{[\s\S]*\}/);
 
     if (jsonMatch) {

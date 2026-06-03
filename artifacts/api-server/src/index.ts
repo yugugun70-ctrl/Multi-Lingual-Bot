@@ -1,14 +1,15 @@
+import { loadConfig, getConfigValue } from "./lib/config";
 import app from "./app";
 import { logger } from "./lib/logger";
 import { createBot } from "./bot";
 import { runMigrations } from "@workspace/db";
 
+loadConfig();
+
 const rawPort = process.env["PORT"];
 
 if (!rawPort) {
-  throw new Error(
-    "PORT environment variable is required but was not provided.",
-  );
+  throw new Error("PORT environment variable is required but was not provided.");
 }
 
 const port = Number(rawPort);
@@ -25,11 +26,11 @@ app.listen(port, (err) => {
   logger.info({ port }, "Server listening");
 });
 
-// Jalankan migrasi DB sebelum bot start
 runMigrations()
   .then(() => {
-    if (process.env.TELEGRAM_BOT_TOKEN) {
-      const bot = createBot();
+    const token = getConfigValue("TELEGRAM_BOT_TOKEN");
+    if (token) {
+      const bot = createBot(token);
       bot.start({
         onStart: (botInfo) => {
           logger.info({ username: botInfo.username }, "Bot Telegram berjalan");
@@ -38,7 +39,7 @@ runMigrations()
       process.once("SIGINT", () => bot.stop());
       process.once("SIGTERM", () => bot.stop());
     } else {
-      logger.warn("TELEGRAM_BOT_TOKEN tidak diset — bot tidak akan berjalan. Tambahkan di Secrets.");
+      logger.warn("TELEGRAM_BOT_TOKEN belum diset — isi di /api/setup lalu restart server.");
     }
   })
   .catch((err) => {

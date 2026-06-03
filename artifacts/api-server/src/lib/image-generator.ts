@@ -1,4 +1,5 @@
 import { logger } from "./logger";
+import { getConfigValue } from "./config";
 
 export interface GenerateImageResult {
   success: boolean;
@@ -10,9 +11,9 @@ export interface GenerateImageResult {
 
 // NVIDIA NIM — Text-to-Image menggunakan Stable Diffusion XL
 export async function generateImageNvidia(prompt: string): Promise<GenerateImageResult> {
-  const apiKey = process.env.NVIDIA_API_KEY;
+  const apiKey = getConfigValue("NVIDIA_API_KEY");
   if (!apiKey) {
-    return { success: false, error: "NVIDIA_API_KEY diperlukan untuk membuat gambar." };
+    return { success: false, error: "NVIDIA_API_KEY diperlukan untuk membuat gambar. Hubungi admin untuk mengisi di halaman setup." };
   }
 
   const modelsToTry = [

@@ -3,11 +3,21 @@ import { InputFile } from "grammy";
 import { db, usersTable } from "@workspace/db";
 import { eq, count } from "drizzle-orm";
 import { addCredits } from "../credits";
+import { getConfigValue } from "../../lib/config";
 
-const ADMIN_IDS = () =>
-  process.env.ADMIN_TELEGRAM_IDS
-    ? process.env.ADMIN_TELEGRAM_IDS.split(",").map((id) => parseInt(id.trim()))
-    : [];
+function ADMIN_IDS(): number[] {
+  const ids: number[] = [];
+  const fromConfig = getConfigValue("ADMIN_ID");
+  if (fromConfig) { const n = parseInt(fromConfig); if (!isNaN(n)) ids.push(n); }
+  const fromEnv = process.env.ADMIN_TELEGRAM_IDS;
+  if (fromEnv) {
+    for (const id of fromEnv.split(",")) {
+      const n = parseInt(id.trim());
+      if (!isNaN(n) && !ids.includes(n)) ids.push(n);
+    }
+  }
+  return ids;
+}
 
 export function isAdmin(telegramId: number): boolean {
   return ADMIN_IDS().includes(telegramId);

@@ -1,6 +1,6 @@
 import type { Context } from "grammy";
 import { getOrCreateUser, PHOTO_EDIT_COST, VIDEO_EDIT_COST, TOPUP_AMOUNT_IDR, TOPUP_CREDITS } from "../credits";
-import { mainKeyboard } from "./start";
+import { mainInlineKeyboard } from "./start";
 
 export async function handleCreditInfo(ctx: Context): Promise<void> {
   const telegramId = ctx.from?.id;
@@ -17,10 +17,9 @@ export async function handleCreditInfo(ctx: Context): Promise<void> {
     `🖼️ Teks → Foto → *${VIDEO_EDIT_COST} kredit*\n` +
     `✨ Jernihkan Video → *${VIDEO_EDIT_COST} kredit*\n` +
     `💬 Chat AI → *GRATIS* ♾️\n\n` +
-    `💡 *Catatan:* Kredit hanya dipotong jika produksi *berhasil*. Jika gagal, kredit tidak berkurang.\n\n` +
-    `💳 *Top Up:* Rp ${TOPUP_AMOUNT_IDR.toLocaleString("id-ID")} = *${TOPUP_CREDITS} kredit*\n` +
-    `Tekan tombol *💳 Top Up Credit* untuk top up.`,
-    { parse_mode: "Markdown", reply_markup: mainKeyboard }
+    `💡 *Catatan:* Kredit hanya dipotong jika produksi *berhasil*.\n\n` +
+    `💳 *Top Up:* Rp ${TOPUP_AMOUNT_IDR.toLocaleString("id-ID")} = *${TOPUP_CREDITS} kredit*`,
+    { parse_mode: "Markdown", reply_markup: mainInlineKeyboard() }
   );
 }
 
@@ -42,9 +41,9 @@ export async function handleAkunInfo(ctx: Context): Promise<void> {
     `Status: ${user.premium ? "⭐ Premium" : "🆓 Standar"}\n` +
     `Bergabung: ${joined}\n\n` +
     `💳 *Saldo Kredit: ${user.credits} kredit*\n\n` +
-    `📷 Edit Foto = 1 kredit\n` +
-    `🎞️ Edit/Buat Video = 3 kredit\n` +
+    `📷 Edit Foto = ${PHOTO_EDIT_COST} kredit\n` +
+    `🎞️ Edit/Buat Video = ${VIDEO_EDIT_COST} kredit\n` +
     `💬 Chat AI = GRATIS`,
-    { parse_mode: "Markdown", reply_markup: mainKeyboard }
+    { parse_mode: "Markdown", reply_markup: mainInlineKeyboard() }
   );
 }

@@ -3,14 +3,25 @@ import { db, usersTable } from "@workspace/db";
 import { eq } from "drizzle-orm";
 import { getOrCreateUser, addCredits, TOPUP_AMOUNT_IDR, TOPUP_CREDITS } from "../credits";
 import { getUserState, setUserState } from "../state";
-import { mainKeyboard, getTopUpText } from "./start";
+import { mainInlineKeyboard, getTopUpText } from "./start";
+import { getConfigValue } from "../../lib/config";
+
+function getAdminIds(): number[] {
+  const adminId = getConfigValue("ADMIN_ID");
+  const envIds = process.env.ADMIN_TELEGRAM_IDS;
+  const ids: number[] = [];
+  if (adminId) ids.push(parseInt(adminId));
+  if (envIds) {
+    for (const id of envIds.split(",")) {
+      const n = parseInt(id.trim());
+      if (!isNaN(n) && !ids.includes(n)) ids.push(n);
+    }
+  }
+  return ids;
+}
 
 const PAYMENT_BANK    = process.env.PAYMENT_INFO_BANK;
 const PAYMENT_EWALLET = process.env.PAYMENT_INFO_EWALLET;
-const ADMIN_IDS = () =>
-  process.env.ADMIN_TELEGRAM_IDS
-    ? process.env.ADMIN_TELEGRAM_IDS.split(",").map((id) => parseInt(id.trim()))
-    : [];
 
 export async function handlePremiumCommand(ctx: Context): Promise<void> {
   return handleTopUp(ctx);
@@ -28,7 +39,7 @@ export async function handleTopUp(ctx: Context): Promise<void> {
   await ctx.reply(
     getTopUpText() + `\n\n${paymentInfo}` +
     `_Setelah transfer, kirim foto/screenshot bukti pembayaran ke chat ini._`,
-    { parse_mode: "Markdown", reply_markup: mainKeyboard }
+    { parse_mode: "Markdown", reply_markup: mainInlineKeyboard() }
   );
 
   setUserState(telegramId, { awaitingPaymentProof: true });
@@ -45,10 +56,10 @@ export async function handlePaymentProof(ctx: Context): Promise<void> {
     `✅ *Bukti pembayaran diterima!*\n\n` +
     `Terima kasih ${name}! Admin akan memverifikasi dalam *1×24 jam*.\n` +
     `Setelah dikonfirmasi, *${TOPUP_CREDITS} kredit* akan ditambahkan ke akun kamu. 🙏`,
-    { parse_mode: "Markdown", reply_markup: mainKeyboard }
+    { parse_mode: "Markdown", reply_markup: mainInlineKeyboard() }
   );
 
-  for (const adminId of ADMIN_IDS()) {
+  for (const adminId of getAdminIds()) {
     try {
       await ctx.api.sendMessage(
         adminId,
@@ -70,7 +81,7 @@ export async function handlePaymentProof(ctx: Context): Promise<void> {
 
 export async function handleAdminApprove(ctx: Context, args: string[]): Promise<void> {
   const adminId = ctx.from?.id;
-  if (!adminId || !ADMIN_IDS().includes(adminId)) {
+  if (!adminId || !getAdminIds().includes(adminId)) {
     await ctx.reply("❌ Tidak ada akses admin.");
     return;
   }
