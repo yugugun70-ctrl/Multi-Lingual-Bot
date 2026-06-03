@@ -1,7 +1,8 @@
 import { readFileSync, writeFileSync, existsSync } from "fs";
 import { join } from "path";
 
-const CONFIG_PATH = join(process.cwd(), ".bot-config.json");
+// Gunakan path absolut supaya konsisten di semua kondisi runtime
+const CONFIG_PATH = "/home/runner/workspace/artifacts/api-server/.bot-config.json";
 
 export interface BotConfig {
   TELEGRAM_BOT_TOKEN?: string;
@@ -17,11 +18,11 @@ let _cache: BotConfig = {};
 export function loadConfig(): BotConfig {
   try {
     if (existsSync(CONFIG_PATH)) {
-      const raw = readFileSync(CONFIG_PATH, "utf-8");
-      _cache = JSON.parse(raw);
+      const raw = readFileSync(CONFIG_PATH, "utf-8").trim();
+      if (raw) _cache = JSON.parse(raw);
     }
   } catch (e) {
-    console.warn("[Config] Gagal membaca config file:", e);
+    console.warn("[Config] Gagal membaca config:", e);
   }
   return _cache;
 }
@@ -35,6 +36,7 @@ export function saveConfig(updates: Partial<BotConfig>): BotConfig {
   }
   _cache = merged;
   writeFileSync(CONFIG_PATH, JSON.stringify(_cache, null, 2), "utf-8");
+  console.log("[Config] Tersimpan ke:", CONFIG_PATH);
   return _cache;
 }
 
@@ -44,17 +46,11 @@ export function getConfigValue(key: keyof BotConfig): string | undefined {
 
 export function getConfigStatus(): Record<keyof BotConfig, boolean> {
   const keys: Array<keyof BotConfig> = [
-    "TELEGRAM_BOT_TOKEN",
-    "ADMIN_ID",
-    "NVIDIA_API_KEY",
-    "KLING_ACCESS_KEY",
-    "KLING_SECRET_KEY",
-    "REMOVE_BG_API_KEY",
+    "TELEGRAM_BOT_TOKEN", "ADMIN_ID", "NVIDIA_API_KEY",
+    "KLING_ACCESS_KEY", "KLING_SECRET_KEY", "REMOVE_BG_API_KEY",
   ];
   const result = {} as Record<keyof BotConfig, boolean>;
-  for (const k of keys) {
-    result[k] = !!(_cache[k] || process.env[k]);
-  }
+  for (const k of keys) result[k] = !!(_cache[k] || process.env[k]);
   return result;
 }
 

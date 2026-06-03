@@ -44,30 +44,89 @@ export async function fileToBase64DataUrl(filePath: string, mime: string): Promi
 // ─── Remove Background (lokal via @imgly/background-removal-node) ──────────
 
 export async function removeBackgroundLocal(imageUrl: string): Promise<ProcessResult> {
+  // Coba imgly dulu
   try {
-    // Import CJS module secara langsung (karena imgly menggunakan CJS)
     const { createRequire } = await import("node:module");
-    const require = createRequire(import.meta.url);
-    const { removeBackground } = require("@imgly/background-removal-node") as {
+    const req = createRequire(import.meta.url);
+    const { removeBackground } = req("@imgly/background-removal-node") as {
       removeBackground: (input: string) => Promise<Blob>;
     };
 
-    logger.info("Menghapus background lokal via @imgly/background-removal-node");
+    logger.info("Menghapus background via @imgly/background-removal-node");
     const buf = await fetchBuffer(imageUrl);
     const inputPath = await bufferToTempFile(buf, "jpg");
-
     try {
       const blob = await removeBackground(inputPath);
       const arrayBuf = await blob.arrayBuffer();
       const outBuf = Buffer.from(arrayBuf);
-      const base64 = `data:image/png;base64,${outBuf.toString("base64")}`;
-      return { success: true, outputUrl: base64, mimeType: "image/png", message: "Background berhasil dihapus!" };
+      return {
+        success: true,
+        outputUrl: `data:image/png;base64,${outBuf.toString("base64")}`,
+        mimeType: "image/png",
+        message: "Background berhasil dihapus!",
+      };
     } finally {
       await fs.unlink(inputPath).catch(() => {});
     }
+  } catch (imglyErr: any) {
+    logger.warn({ imglyErr: imglyErr.message?.slice(0, 60) }, "imgly gagal, coba fallback sharp");
+  }
+
+  // Fallback: gunakan sharp untuk simulasi hapus background (luminance-based)
+  try {
+    const sharp = (await import("sharp")).default;
+    const buf = await fetchBuffer(imageUrl);
+
+    // Konversi ke RGBA, buat mask berdasarkan edge detection sederhana
+    const { data, info } = await sharp(buf)
+      .resize(512, 512, { fit: "inside" })
+      .ensureAlpha()
+      .raw()
+      .toBuffer({ resolveWithObject: true });
+
+    const w = info.width;
+    const h = info.height;
+    const out = Buffer.from(data);
+
+    // Estimasi background dari sudut-sudut gambar (corner sampling)
+    const sampleCorners = (d: Buffer, width: number) => {
+      const pixels: number[][] = [];
+      const corners = [0, (width - 1), width * (width - 1), width * width - 1];
+      for (const c of corners) {
+        const i = c * 4;
+        pixels.push([d[i], d[i + 1], d[i + 2]]);
+      }
+      return pixels;
+    };
+
+    const corners = sampleCorners(out, Math.min(w, h));
+    const avgBg = corners.reduce(
+      (acc, p) => [acc[0] + p[0] / 4, acc[1] + p[1] / 4, acc[2] + p[2] / 4],
+      [0, 0, 0]
+    );
+
+    // Hapus piksel yang mirip dengan background
+    for (let i = 0; i < out.length; i += 4) {
+      const dr = Math.abs(out[i]     - avgBg[0]);
+      const dg = Math.abs(out[i + 1] - avgBg[1]);
+      const db = Math.abs(out[i + 2] - avgBg[2]);
+      const dist = dr + dg + db;
+      if (dist < 80) out[i + 3] = 0; // transparan
+    }
+
+    const result = await sharp(out, { raw: { width: w, height: h, channels: 4 } }).png().toBuffer();
+    return {
+      success: true,
+      outputUrl: `data:image/png;base64,${result.toString("base64")}`,
+      mimeType: "image/png",
+      message: "Background dihapus (mode sederhana). Untuk hasil lebih baik, tambahkan Remove.bg API key.",
+    };
   } catch (err: any) {
-    logger.error({ err }, "Remove background lokal gagal");
-    return { success: false, error: `Remove background gagal: ${err.message}` };
+    logger.error({ err }, "Remove background fallback gagal");
+    return {
+      success: false,
+      error: "Hapus background gagal. Coba tambahkan Remove.bg API key di halaman setup untuk hasil terbaik.",
+    };
   }
 }
 

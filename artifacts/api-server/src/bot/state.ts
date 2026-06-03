@@ -22,20 +22,12 @@ export type EditAction =
   | "video_watermark"
   | "video_noise_reduction";
 
-// 1=Edit Foto, 2=Teks→Foto, 3=Teks→Video, 4=Foto→Video, 5=Jernihkan Video
 export type MenuMode = 1 | 2 | 3 | 4 | 5 | null;
 
-export interface PendingEdit {
-  action: EditAction;
-  fileId: string;
-  fileType: "photo" | "video";
-  extraParams?: Record<string, string>;
-  description: string;
-}
-
 export interface UserState {
-  pending: PendingEdit | null;
+  pending: null;
   menuMode: MenuMode;
+  pendingAction: EditAction | null;
   lastPhotoFileId: string | null;
   lastPhotoFileUrl: string | null;
   lastVideoFileId: string | null;
@@ -50,6 +42,7 @@ export function getUserState(telegramId: number): UserState {
     userStates.set(telegramId, {
       pending: null,
       menuMode: null,
+      pendingAction: null,
       lastPhotoFileId: null,
       lastPhotoFileUrl: null,
       lastVideoFileId: null,
@@ -66,6 +59,5 @@ export function setUserState(telegramId: number, state: Partial<UserState>): voi
 }
 
 export function clearPending(telegramId: number): void {
-  const current = getUserState(telegramId);
-  userStates.set(telegramId, { ...current, pending: null });
+  setUserState(telegramId, { pendingAction: null });
 }
