@@ -20,21 +20,20 @@ HANYA balas dalam format JSON berikut — tidak boleh ada teks lain:
 {"message":"balasanmu","action":null,"off_topic":false}
 
 Daftar action yang valid:
-video_enhance, video_stabilize, video_noise_reduction, video_audio_denoise,
-video_watermark, video_trim,
-video_quality_hd, video_quality_fhd, video_quality_4k,
-video_subtitle, video_auto_subtitle,
-video_effect_cinematic, video_effect_bw, video_effect_vintage, video_effect_drama, video_effect_vivid,
-video_ratio_16_9, video_ratio_9_16, video_ratio_1_1, video_ratio_4_3, video_ratio_21_9
+video_enhance_standard, video_enhance_pro, video_enhance_hdr,
+video_resolution_ratio, video_auto_subtitle
 
 ATURAN:
-- Jika user minta edit video → set action sesuai
-- video_quality_hd = HD 720p, video_quality_fhd = Full HD 1080p, video_quality_4k = 4K
-- video_effect_bw = hitam putih, video_effect_cinematic = warna sinematik
-- video_ratio_9_16 = portrait/reels/tiktok, video_ratio_16_9 = landscape/youtube
-- video_trim = potong video
-- video_audio_denoise = hilangkan noise/gangguan suara dari video
+- video_enhance_standard = perbaiki standar (denoise ringan + sharpen + warna)
+- video_enhance_pro = perbaiki pro (kualitas tinggi, tajam, cerah)
+- video_enhance_hdr = efek HDR (warna hidup, kontras dinamis, premium)
+- video_resolution_ratio = ubah resolusi atau rasio video
 - video_auto_subtitle = buat subtitle otomatis dari suara video
+- Jika user minta jernihkan/perbaiki video → video_enhance_standard
+- Jika user minta kualitas terbaik/pro/profesional → video_enhance_pro
+- Jika user minta HDR/warna hidup → video_enhance_hdr
+- Jika user minta resolusi/HD/4K/rasio/tiktok/reels → video_resolution_ratio
+- Jika user minta subtitle/caption/teks otomatis → video_auto_subtitle
 - Jika topik lain → off_topic true, tolak sopan
 - Selalu balas bahasa Indonesia, singkat & ramah`;
 
@@ -48,41 +47,38 @@ export interface AgentResponse {
 }
 
 const ACTION_ALIASES: Record<string, EditAction> = {
-  "enhance": "video_enhance", "enhance_video": "video_enhance",
-  "jernih": "video_enhance", "jernihkan": "video_enhance",
-  "stabilize": "video_stabilize", "stabilisasi": "video_stabilize",
-  "denoise": "video_noise_reduction", "noise_reduction": "video_noise_reduction",
-  "watermark": "video_watermark",
-  "trim": "video_trim", "potong": "video_trim", "cut": "video_trim",
-  "hd": "video_quality_hd", "720p": "video_quality_hd",
-  "fhd": "video_quality_fhd", "full_hd": "video_quality_fhd", "1080p": "video_quality_fhd",
-  "4k": "video_quality_4k", "2160p": "video_quality_4k",
-  "subtitle": "video_subtitle", "caption": "video_subtitle", "teks": "video_subtitle",
-  "auto_subtitle": "video_auto_subtitle", "auto_caption": "video_auto_subtitle",
-  "subtitle_otomatis": "video_auto_subtitle", "transkripsi": "video_auto_subtitle",
-  "audio_denoise": "video_audio_denoise", "bersihkan_suara": "video_audio_denoise",
-  "noise_audio": "video_audio_denoise", "hapus_noise": "video_audio_denoise",
-  "denoise_audio": "video_audio_denoise", "audio_noise": "video_audio_denoise",
-  "bising": "video_audio_denoise", "gangguan_suara": "video_audio_denoise",
-  "bw": "video_effect_bw", "hitam_putih": "video_effect_bw", "grayscale": "video_effect_bw",
-  "cinematic": "video_effect_cinematic", "movie_look": "video_effect_cinematic",
-  "vintage": "video_effect_vintage", "retro": "video_effect_vintage",
-  "drama": "video_effect_drama", "dramatic": "video_effect_drama",
-  "vivid": "video_effect_vivid", "colorful": "video_effect_vivid",
-  "landscape": "video_ratio_16_9", "portrait": "video_ratio_9_16",
-  "reels": "video_ratio_9_16", "tiktok": "video_ratio_9_16",
-  "square": "video_ratio_1_1", "persegi": "video_ratio_1_1",
-  "classic": "video_ratio_4_3", "klasik": "video_ratio_4_3",
-  "widescreen": "video_ratio_21_9",
+  "enhance": "video_enhance_standard",
+  "enhance_standard": "video_enhance_standard",
+  "standar": "video_enhance_standard",
+  "jernihkan": "video_enhance_standard",
+  "jernih": "video_enhance_standard",
+  "bersihkan": "video_enhance_standard",
+  "enhance_pro": "video_enhance_pro",
+  "pro": "video_enhance_pro",
+  "profesional": "video_enhance_pro",
+  "hdr": "video_enhance_hdr",
+  "enhance_hdr": "video_enhance_hdr",
+  "warna_hidup": "video_enhance_hdr",
+  "resolution_ratio": "video_resolution_ratio",
+  "resolusi": "video_resolution_ratio",
+  "rasio": "video_resolution_ratio",
+  "hd": "video_resolution_ratio",
+  "4k": "video_resolution_ratio",
+  "fhd": "video_resolution_ratio",
+  "auto_subtitle": "video_auto_subtitle",
+  "subtitle": "video_auto_subtitle",
+  "caption": "video_auto_subtitle",
+  "teks": "video_auto_subtitle",
+  "transkripsi": "video_auto_subtitle",
+  "subtitle_otomatis": "video_auto_subtitle",
 };
 
 const VALID_ACTIONS = new Set<string>([
-  "video_enhance", "video_stabilize", "video_noise_reduction", "video_audio_denoise",
-  "video_watermark", "video_trim",
-  "video_quality_hd", "video_quality_fhd", "video_quality_4k",
-  "video_subtitle", "video_auto_subtitle",
-  "video_effect_cinematic", "video_effect_bw", "video_effect_vintage", "video_effect_drama", "video_effect_vivid",
-  "video_ratio_16_9", "video_ratio_9_16", "video_ratio_1_1", "video_ratio_4_3", "video_ratio_21_9",
+  "video_enhance_standard",
+  "video_enhance_pro",
+  "video_enhance_hdr",
+  "video_resolution_ratio",
+  "video_auto_subtitle",
 ]);
 
 function normalizeAction(raw: string | null | undefined): EditAction | null {

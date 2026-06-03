@@ -9,85 +9,65 @@ function escHtml(s: string): string {
 // ─── Menu Utama ───────────────────────────────────────────────────────────────
 export function mainInlineKeyboard(): InlineKeyboard {
   return new InlineKeyboard()
-    .text("✨ Jernihkan Video", "menu:jernihkan").text("📐 Kualitas Video", "menu:kualitas")
+    .text("🎨 Perbaiki Video", "menu:perbaiki").text("📺 Resolusi & Rasio", "menu:resolusi_rasio")
     .row()
-    .text("🎞️ Efek Video", "menu:efek").text("📏 Rasio Video", "menu:rasio")
-    .row()
-    .text("💬 Tambah Subtitle", "menu:subtitle").text("✂️ Potong Video", "menu:trim")
-    .row()
-    .text("🔊 Bersihkan Suara", "menu:audio_denoise")
+    .text("📝 Subtitle Otomatis", "menu:subtitle")
     .row()
     .text("💳 Top Up Kredit", "menu:topup");
 }
 
-// ─── Submenu Kualitas ─────────────────────────────────────────────────────────
-export function kualitasKeyboard(): InlineKeyboard {
+// ─── Submenu Perbaiki Video ───────────────────────────────────────────────────
+export function perbaikiKeyboard(): InlineKeyboard {
   return new InlineKeyboard()
-    .text("📺 HD (720p)", "edit:video_quality_hd")
+    .text("✨ Standar", "perbaiki:standard")
     .row()
-    .text("🖥️ Full HD (1080p)", "edit:video_quality_fhd")
+    .text("💎 Pro", "perbaiki:pro")
     .row()
-    .text("🔮 4K (2160p)", "edit:video_quality_4k")
+    .text("🌈 HDR", "perbaiki:hdr")
     .row()
-    .text("◀️ Menu Utama", "menu:back");
+    .text("◀️ Kembali", "menu:back");
 }
 
-// ─── Submenu Efek Video ───────────────────────────────────────────────────────
-export function efekVideoKeyboard(): InlineKeyboard {
+// ─── Submenu Resolusi ─────────────────────────────────────────────────────────
+export function resolusiKeyboard(): InlineKeyboard {
   return new InlineKeyboard()
-    .text("🎬 Sinematik", "edit:video_effect_cinematic").text("⬛ Hitam & Putih", "edit:video_effect_bw")
+    .text("📱 Original", "resolusi:original").text("🎥 HD (720p)", "resolusi:hd")
     .row()
-    .text("📽️ Vintage/Retro", "edit:video_effect_vintage").text("🎭 Drama", "edit:video_effect_drama")
+    .text("✨ Full HD (1080p)", "resolusi:fhd").text("👑 4K (2160p)", "resolusi:4k")
     .row()
-    .text("💥 Vivid/Cerah", "edit:video_effect_vivid")
-    .row()
-    .text("◀️ Menu Utama", "menu:back");
+    .text("◀️ Kembali", "menu:back");
 }
 
-// ─── Submenu Rasio Video ──────────────────────────────────────────────────────
-export function rasioVideoKeyboard(): InlineKeyboard {
+// ─── Submenu Rasio ────────────────────────────────────────────────────────────
+export function rasioKeyboard(): InlineKeyboard {
   return new InlineKeyboard()
-    .text("▬ 16:9 Landscape", "edit:video_ratio_16_9").text("▮ 9:16 Reels", "edit:video_ratio_9_16")
+    .text("📱 9:16 (TikTok/Reels)", "rasio:9_16").text("🖼️ 1:1 (Feed)", "rasio:1_1")
     .row()
-    .text("■ 1:1 Square", "edit:video_ratio_1_1").text("▭ 4:3 Klasik", "edit:video_ratio_4_3")
+    .text("🎬 16:9 (YouTube)", "rasio:16_9").text("🔄 Pertahankan Asli", "rasio:keep")
     .row()
-    .text("▬▬ 21:9 Sinema", "edit:video_ratio_21_9")
-    .row()
-    .text("◀️ Menu Utama", "menu:back");
+    .text("◀️ Kembali", "menu:resolusi_rasio");
 }
 
-// ─── Submenu Subtitle ─────────────────────────────────────────────────────────
-export function subtitleMenuKeyboard(): InlineKeyboard {
+// ─── Submenu Gaya Subtitle ────────────────────────────────────────────────────
+export function subtitleStyleKeyboard(): InlineKeyboard {
   return new InlineKeyboard()
-    .text("🎙️ Auto (dari suara video)", "menu:auto_subtitle")
+    .text("📝 Classic", "subtitle_style:classic")
     .row()
-    .text("✏️ Ketik Teks Manual", "menu:subtitle_manual")
+    .text("📱 TikTok Style", "subtitle_style:tiktok")
     .row()
-    .text("◀️ Menu Utama", "menu:back");
+    .text("🎬 CapCut Style", "subtitle_style:capcut")
+    .row()
+    .text("◀️ Kembali", "menu:back");
 }
 
 // ─── Submenu Posisi Subtitle ──────────────────────────────────────────────────
 export function subtitlePosKeyboard(): InlineKeyboard {
   return new InlineKeyboard()
-    .text("⬆️ Teks di Atas", "subtitle_pos:top")
+    .text("⬆️ Atas", "subtitle_pos:top").text("↕️ Tengah", "subtitle_pos:middle").text("⬇️ Bawah", "subtitle_pos:bottom")
     .row()
-    .text("↕️ Teks di Tengah", "subtitle_pos:middle")
+    .text("🎯 Kustom (0–100)", "subtitle_pos:custom")
     .row()
-    .text("⬇️ Teks di Bawah", "subtitle_pos:bottom")
-    .row()
-    .text("◀️ Menu Utama", "menu:back");
-}
-
-// ─── Konfirmasi Posisi Auto Subtitle ─────────────────────────────────────────
-export function autoSubtitleConfirmKeyboard(suggestedPos: "top" | "middle" | "bottom"): InlineKeyboard {
-  const labels = { top: "⬆️ Atas", middle: "↕️ Tengah", bottom: "⬇️ Bawah" };
-  const suggested = labels[suggestedPos];
-  return new InlineKeyboard()
-    .text(`✅ Pakai Saran AI (${suggested})`, `auto_sub_pos:${suggestedPos}`)
-    .row()
-    .text("⬆️ Atas", "auto_sub_pos:top").text("↕️ Tengah", "auto_sub_pos:middle").text("⬇️ Bawah", "auto_sub_pos:bottom")
-    .row()
-    .text("❌ Batal", "menu:back");
+    .text("◀️ Pilih Gaya Lagi", "menu:subtitle");
 }
 
 // ─── Pilihan Paket Top Up ──────────────────────────────────────────────────────
@@ -106,7 +86,7 @@ export function topupTiersKeyboard(): InlineKeyboard {
     .text("◀️ Menu Utama", "menu:back");
 }
 
-// ─── Teks Top Up (untuk paket tertentu) ───────────────────────────────────────
+// ─── Teks Top Up ──────────────────────────────────────────────────────────────
 export function getTopUpText(tierKey?: "starter" | "value"): string {
   const rateInfo =
     `<b>Tarif penggunaan:</b>\n` +
@@ -152,10 +132,10 @@ export async function handleStart(ctx: Context): Promise<void> {
     (isNew
       ? `Selamat datang di <b>EditAI</b>!\n\nKamu dapat <b>${NEW_USER_CREDITS} kredit gratis</b> untuk memulai! 🎉`
       : "Selamat datang kembali!") +
-    `\n\nSaya asisten AI untuk <b>edit video</b> profesional.\n\n` +
+    `\n\n✂️ Bot edit video profesional berbasis AI.\n\n` +
     `💳 Kredit kamu: <b>${user.credits} kredit</b>\n` +
-    `🎞️ Semua fitur video = <b>${VIDEO_EDIT_COST} kredit</b> per proses\n\n` +
-    `Pilih layanan 👇`,
+    `🎞️ Semua fitur = <b>${VIDEO_EDIT_COST} kredit</b> per proses\n\n` +
+    `Kirim video lalu pilih layanan 👇`,
     { parse_mode: "HTML", reply_markup: mainInlineKeyboard() }
   );
 }

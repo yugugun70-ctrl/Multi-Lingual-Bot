@@ -1,36 +1,20 @@
-import type { TranscriptSegment } from "../lib/transcribe";
 import type { TopupTierKey } from "./credits";
 
+export type SubtitleStyle = "classic" | "tiktok" | "capcut";
+
 export type EditAction =
-  | "video_enhance"
-  | "video_stabilize"
-  | "video_noise_reduction"
-  | "video_audio_denoise"
-  | "video_watermark"
-  | "video_trim"
-  | "video_quality_hd"
-  | "video_quality_fhd"
-  | "video_quality_4k"
-  | "video_subtitle"
-  | "video_auto_subtitle"
-  | "video_effect_cinematic"
-  | "video_effect_bw"
-  | "video_effect_vintage"
-  | "video_effect_drama"
-  | "video_effect_vivid"
-  | "video_ratio_16_9"
-  | "video_ratio_9_16"
-  | "video_ratio_1_1"
-  | "video_ratio_4_3"
-  | "video_ratio_21_9";
+  | "video_enhance_standard"
+  | "video_enhance_pro"
+  | "video_enhance_hdr"
+  | "video_resolution_ratio"
+  | "video_auto_subtitle";
 
 export type MenuMode =
-  | "main"
-  | "kualitas"
-  | "efek"
+  | "perbaiki"
+  | "resolusi"
   | "rasio"
+  | "subtitle_style"
   | "subtitle_pos"
-  | "auto_subtitle_pos"
   | null;
 
 export interface UserState {
@@ -41,11 +25,11 @@ export interface UserState {
   lastVideoFileUrl: string | null;
   awaitingPaymentProof: boolean;
   topupTier: TopupTierKey | null;
-  awaitingSubtitleText: boolean;
-  subtitlePosition: "top" | "middle" | "bottom";
-  awaitingTrimTime: boolean;
-  pendingTranscriptSegments: TranscriptSegment[] | null;
-  transcriptSuggestedPosition: "top" | "middle" | "bottom";
+  subtitleStyle: SubtitleStyle;
+  subtitlePosition: "top" | "middle" | "bottom" | "custom";
+  subtitleCustomY: number;
+  awaitingCustomPosition: boolean;
+  pendingResolution: "original" | "hd" | "fhd" | "4k" | null;
   isTranscribing: boolean;
 }
 
@@ -61,11 +45,11 @@ export function getUserState(telegramId: number): UserState {
       lastVideoFileUrl: null,
       awaitingPaymentProof: false,
       topupTier: null,
-      awaitingSubtitleText: false,
+      subtitleStyle: "classic",
       subtitlePosition: "bottom",
-      awaitingTrimTime: false,
-      pendingTranscriptSegments: null,
-      transcriptSuggestedPosition: "bottom",
+      subtitleCustomY: 85,
+      awaitingCustomPosition: false,
+      pendingResolution: null,
       isTranscribing: false,
     });
   }
@@ -80,10 +64,12 @@ export function setUserState(telegramId: number, state: Partial<UserState>): voi
 export function clearPending(telegramId: number): void {
   setUserState(telegramId, {
     pendingAction: null,
-    awaitingSubtitleText: false,
+    menuMode: null,
+    pendingResolution: null,
+    subtitleStyle: "classic",
     subtitlePosition: "bottom",
-    awaitingTrimTime: false,
-    pendingTranscriptSegments: null,
+    subtitleCustomY: 85,
+    awaitingCustomPosition: false,
     isTranscribing: false,
   });
 }
