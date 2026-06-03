@@ -5,9 +5,11 @@ import {
   videoEnhanceHDRFFmpeg,
   videoResolutionRatioFFmpeg,
   videoAutoSubtitleFFmpeg,
+  videoManualSubtitleFFmpeg,
+  videoRemoveWatermarkFFmpeg,
 } from "../lib/video-processor";
 import type { TranscriptSegment } from "../lib/transcribe";
-import type { EditAction, SubtitleStyle } from "./state";
+import type { EditAction, SubtitleStyle, ManualSubtitleStyle, WatermarkPosition, WatermarkSize } from "./state";
 
 export interface ToolResult {
   success: boolean;
@@ -18,46 +20,41 @@ export interface ToolResult {
 }
 
 function wrap(r: { success: boolean; outputUrl?: string; error?: string; message?: string; isVideo?: boolean }): ToolResult {
-  return { success: r.success, outputUrl: r.outputUrl, error: r.error, message: r.message, isVideo: r.isVideo };
+  return r;
 }
 
-// ─── Perbaiki Video ───────────────────────────────────────────────────────────
+export const videoEnhanceStandard = (u: string)                              => wrap(videoEnhanceStandardFFmpeg(u));
+export const videoEnhancePro      = (u: string)                              => wrap(videoEnhanceProFFmpeg(u));
+export const videoEnhanceHDR      = (u: string)                              => wrap(videoEnhanceHDRFFmpeg(u));
 
-export async function videoEnhanceStandard(u: string): Promise<ToolResult> {
-  return wrap(await videoEnhanceStandardFFmpeg(u));
-}
-
-export async function videoEnhancePro(u: string): Promise<ToolResult> {
-  return wrap(await videoEnhanceProFFmpeg(u));
-}
-
-export async function videoEnhanceHDR(u: string): Promise<ToolResult> {
-  return wrap(await videoEnhanceHDRFFmpeg(u));
-}
-
-// ─── Resolusi & Rasio ─────────────────────────────────────────────────────────
-
-export async function videoResolutionRatio(
+export const videoResolutionRatio = (
   u: string,
   resolution: "original" | "hd" | "fhd" | "4k",
   ratio: "9_16" | "1_1" | "16_9" | "keep"
-): Promise<ToolResult> {
-  return wrap(await videoResolutionRatioFFmpeg(u, resolution, ratio));
-}
+) => wrap(videoResolutionRatioFFmpeg(u, resolution, ratio));
 
-// ─── Auto Subtitle ────────────────────────────────────────────────────────────
-
-export async function videoAutoSubtitle(
+export const videoAutoSubtitle = (
   u: string,
   segments: TranscriptSegment[],
   position: "top" | "middle" | "bottom" | "custom" = "bottom",
   style: SubtitleStyle = "classic",
   customYPercent: number = 85
-): Promise<ToolResult> {
-  return wrap(await videoAutoSubtitleFFmpeg(u, segments, position, style, customYPercent));
-}
+) => wrap(videoAutoSubtitleFFmpeg(u, segments, position, style, customYPercent));
 
-// ─── Router Utama ─────────────────────────────────────────────────────────────
+export const videoManualSubtitle = (
+  u: string,
+  text: string,
+  style: ManualSubtitleStyle = "bold_white",
+  position: "top" | "middle" | "bottom" = "bottom"
+) => wrap(videoManualSubtitleFFmpeg(u, text, style, position));
+
+export const videoRemoveWatermark = (
+  u: string,
+  position: WatermarkPosition,
+  size: WatermarkSize = "medium"
+) => wrap(videoRemoveWatermarkFFmpeg(u, position, size));
+
+// ─── Router ───────────────────────────────────────────────────────────────────
 
 export async function executeEditAction(
   action: EditAction,
@@ -75,6 +72,13 @@ export async function executeEditAction(
         fileUrl,
         (extraParams?.resolution ?? "original") as "original" | "hd" | "fhd" | "4k",
         (extraParams?.ratio ?? "keep") as "9_16" | "1_1" | "16_9" | "keep"
+      );
+
+    case "video_remove_watermark":
+      return videoRemoveWatermark(
+        fileUrl,
+        (extraParams?.position ?? "top_right") as WatermarkPosition,
+        (extraParams?.size ?? "medium") as WatermarkSize
       );
 
     default:

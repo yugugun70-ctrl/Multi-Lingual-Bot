@@ -1,5 +1,7 @@
 - [Grammy esbuild external](grammy-esbuild.md) — grammy HARUS di-externalize di build.mjs atau crash MODULE_NOT_FOUND saat startup
 - [Conversation-First Bot Architecture](bot-architecture.md) — bot pakai Claude JSON structured response untuk intent detection, bukan button menu
+- [Watermark removal via delogo](watermark-delogo.md) — FFmpeg delogo filter pakai pixel koordinat absolut (bukan %, harus ffprobe dimensions dulu); 5 posisi preset + S/M/L size
+- [Manual subtitle drawtext multi-line](manual-subtitle-drawtext.md) — split baris per \n, satu drawtext per baris dengan yBase+idx*lineH; cinematic style pakai drawbox full-width dulu sebelum drawtext
 - [Free tools stack](free-tools-stack.md) — semua editing pakai sharp+FFmpeg+imgly (gratis, lokal), bukan Replicate; imgly butuh sharp@0.32 di-rebuild
 - [NVIDIA NIM models](nvidia-nim-models.md) — model yang terverifikasi aktif di akun ini; beberapa model 404 meski ada di daftar
 - [Whisper lokal via xenova](whisper-xenova.md) — NVIDIA tidak punya audio endpoint; pakai @xenova/transformers (Xenova/whisper-tiny, lokal, gratis); HARUS di-external di build.mjs
